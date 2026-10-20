@@ -168,10 +168,43 @@ def get_context(device: str, kpi: str, ts: str):
     """
     if device not in mme_data.list_devices():
         return {"error": f"모르는 장비입니다: {device}"}
-    if kpi in mme_data.list_kpis():
+    if kpi not in mme_data.list_kpis():
         return {"error": f"모르는 KPI입니다: {kpi}"}
 
+    t = mme_detect.score_table()
+    at = pd.Timestamp(ts)
 
+    def brief(r):
+        return {"device": r["device"], "kpi": r["kpi"], "ts": r["ts"].strftime("%Y-%m-%d %H:00"),
+                "value": None if pd.isna(r["value"]) else round(float(r["value"]), 2),
+                "usual": None if pd.isna(r["usual"]) else round(float(r["usual"]), 2),
+                "direction": r["direction"], "is_alarm": bool(r["is_alarm"])}
+
+    # ① 짝 KPI (같은 장비, 같은 시각)
+    pair_kpi = mme_data.pair_of(kpi)
+    pair_rows = t[(t["device"] == device) & (t["kpi"] == pair_kpi) & (t["ts"] == at)]
+    pair = brief(pair_rows.iloc[0]) if len(pair_rows) else None
+
+    # ② 같은 시각, 같은 KPI, 다른 장비들
+    peers = t[(t["kpi"] == kpi) & (t["ts"] == at) & (t["device"] != device)]
+    peer_alarms = int(peers["is_alarm"].sum())
+
+    # ③ 같은 장비, ±1시간, 다른 KPI 알람
+    near = t[(t["device"] == device) & (t["kpi"] != kpi) & t["is_alarm"]
+             & (t["ts"] >= at - pd.Timedelta("1h")) & (t["ts"] <= at + pd.Timedelta("1h"))]
+
+    return {
+        "target": {"device": device, "kpi": kpi, "ts": ts, "kpi_type": mme_data.kpi_type(kpi)},
+        "pair_kpi": pair,
+        "same_time_other_devices": {
+            "total": len(peers),
+            "alarm_count": peer_alarms,
+            "devices_with_alarm": sorted(peers.loc[peers["is_alarm"], "device"].tolist()),
+            "hint": "여러 장비 동시 이상 → 공통 원인(망·연동·이벤트) 가능성" if peer_alarms >= 3
+                    else "이 장비만의 이상일 가능성",
+        },
+        "same_device_nearby_alarms": [brief(r) for _, r in near.iterrows()],
+    }
 
 # -----------------------
 @mcp.resource("runbook://incident-response/{incident_type}")
