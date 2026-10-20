@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))    # corewatch_agen
 from fastmcp import Client
 from mcp_server import mcp
 
-async def main():
+async def main() -> None:
     async with Client(mcp) as client:
         tools = await client.list_tools()
         print("도구 목록:", [t.name for t in tools])

@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastmcp import Client
 from mcp_server import mcp
 
-async def main():
+async def main() -> None:
     async with Client(mcp) as client:
         print("도구 목록:", [t.name for t in await client.list_tools()])
 

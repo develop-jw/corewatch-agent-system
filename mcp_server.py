@@ -57,7 +57,7 @@ def get_monitoring_status(system_name: str) -> SystemStatus:
     )
 
 
-# ---- CoreWatch 도구 ① KPI 조회 ----
+# ===== CoreWatch 도구 ① KPI 조회 =====
 class KpiPoint(BaseModel):
     ts: str = Field(description="시각 (YYYY-MM-DD HH:00)")
     value: float = Field(description="값 (시도 KPI는 건수, 성공률 KPIsms %)")
@@ -100,7 +100,7 @@ def get_kpi_series(device: str, kpi: str, start: str, end: str) -> KpiSeries:
     return KpiSeries(**base, points=points, summary=summary)
 
 
-# ---- CoreWatch 도구 ② 이상 탐지 ----
+# ===== CoreWatch 도구 ② 이상 탐지 =====
 class AnomalyPoint(BaseModel):
     ts: str = Field(description="시각")
     value: float | None = Field(description="실제 값 (없으면 null = 판정 불가)")
@@ -135,7 +135,7 @@ def detect_anomaly(device: str, kpi: str, start: str, end: str) -> AnomalyResult
     if rows.empty:
         return AnomalyResult(**base, error="해당 기간에 데이터가 없습니다")
 
-    def num(x):   # NaN(값 없음)은 None으로 바꿔 JSON에서 null이 되게 한다
+    def num(x: float) -> float | None:   # NaN(값 없음)은 None으로 바꿔 JSON에서 null이 되게 한다
         return None if pd.isna(x) else round(float(x), 3)
 
     points = [AnomalyPoint(ts=r.ts.strftime("%Y-%m-%d %H:00"), value=num(r.value), usual=num(r.usual),
@@ -157,9 +157,9 @@ def list_alarms(start: str, end: str, limit: int = 30) -> list[dict]:
             for r in rows.itertuples()]
 
 
-# ---- CoreWatch 도구 ③ 맥락 조회 ----
+# ===== CoreWatch 도구 ③ 맥락 조회 =====
 @mcp.tool()
-def get_context(device: str, kpi: str, ts: str):
+def get_context(device: str, kpi: str, ts: str) -> dict:
     """알람 하나(장비·KPI·시각)를 해석하는 데 필요한 주변 상황을 한 번에 돌려줍니다.
     ① 짝 KPI: 같은 절차의 시도↔성공률이 같은 시각에 어땠는지
     ② 같은 시각 다른 장비: 같은 KPI가 다른 장비에서도 함께 튀었는지 (장비 전체 문제 vs 이 장비만의 문제)
@@ -174,7 +174,7 @@ def get_context(device: str, kpi: str, ts: str):
     t = mme_detect.score_table()
     at = pd.Timestamp(ts)
 
-    def brief(r):
+    def brief(r: pd.Series) -> dict:
         return {"device": r["device"], "kpi": r["kpi"], "ts": r["ts"].strftime("%Y-%m-%d %H:00"),
                 "value": None if pd.isna(r["value"]) else round(float(r["value"]), 2),
                 "usual": None if pd.isna(r["usual"]) else round(float(r["usual"]), 2),
@@ -205,6 +205,27 @@ def get_context(device: str, kpi: str, ts: str):
         },
         "same_device_nearby_alarms": [brief(r) for _, r in near.iterrows()],
     }
+
+
+
+# ===== CoreWatch 진단 절차 (MCP Prompt) =====
+@mcp.prompt()
+def alarm_analysis_prompt(device: str, kpi: str, ts: str) -> str:
+    """MME 알람 분석 표준 절차 — 에이전트가 계획을 세울 때 이 순서를 따른다."""
+    return f"""다음 MME 알람의 원인을 분석하세요.
+
+    ## 알람 정보
+    - 장비: {device}
+    - 지표: {kpi}
+    - 시각: {ts}
+
+    ## 분석 절차 (반드시 순서대로 수행)
+    1. get_kpi_series로 알람 전후 6시간의 지표 값을 조회해 언제부터 얼마나 달라졌는지 확인하세요.
+    2. detect_anomaly로 이상 점수와 평소 값을 확인하세요.
+    3. get_context로 짝 지표(시도 건수↔성공률), 같은 시각 다른 장비, 같은 장비의 주변 알람을 확인하세요.
+    4. 해당 지표의 점검 절차 문서를 확인하세요.
+    5. 확인한 사실만 근거로 가능한 원인과 점검 순서를 제시하세요. 근거가 부족하면 '원인을 특정할 수 없음'이라고 답하세요.
+    """
 
 # -----------------------
 @mcp.resource("runbook://incident-response/{incident_type}")

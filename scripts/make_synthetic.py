@@ -13,6 +13,7 @@
       data/synthetic/injected_events.csv (넣은 이상 사례 목록, 시연 확인용)
 """
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -58,7 +59,7 @@ df = pd.concat(rows, ignore_index=True)
 events = []
 
 
-def inject(devs, kpi, at, hours, fn, note):
+def inject(devs: list[str], kpi: str, at: str, hours: int, fn: Callable[[pd.Series], pd.Series], note: str) -> None:
     for k in range(hours):
         ts = pd.Timestamp(at) + pd.Timedelta(hours=k)
         m = df["src_nm"].isin(devs) & (df["variable"] == kpi) & (df["ds"] == ts)
