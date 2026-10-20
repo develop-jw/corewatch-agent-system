@@ -1,0 +1,13 @@
+.env
+.venv/
+session.db
+__pycache__/
+*.log
+
+# CoreWatch — 원본 데이터·결과는 절대 커밋하지 않음 (DR-01)
+*.xlsx
+*.p
+data/cache/
+reports/
+.DS_Store
+corewatch/
