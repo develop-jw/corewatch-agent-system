@@ -16,9 +16,8 @@ from sklearn.ensemble import IsolationForest
 from . import data as mme_data
 
 # ---- 고정 설정 (모델 카드: reports/model_card.json) ----
-TRAIN_START = pd.Timestamp("2022-03-07 09:00")
-TRAIN_END = pd.Timestamp("2022-03-10 08:00")     # 학습 72시간
-VALID_END = pd.Timestamp("2022-03-11 08:00")     # 검증 24시간, 이후는 평가 구간
+TRAIN_HOURS = 72                                  # 데이터 시작부터 72시간 = 학습
+VALID_HOURS = 24                                  # 그다음 24시간 = 검증, 나머지 = 평가
 ALARM_BUDGET = 0.003                              # 학습 구간에서 상위 0.3%만 알람 (ADR-0018)
 FEATURES = ["z_prof", "z_diff", "fleet", "dev_vs_fleet", "pair"]
 MODEL_VERSION = "M2-iforest-v2"
@@ -54,7 +53,7 @@ def _make_grid() -> pd.DataFrame:
     is_try = g["kpi"].map(mme_data.kpi_type) == "시도"
     g["y"] = np.where(is_try, np.log1p(g["value"].clip(lower=0)), g["value"])   # 시도 건수는 log로
     g["hour"] = g["ts"].dt.hour
-    g["is_train"] = g["ts"] <= TRAIN_END
+    g["is_train"] = g["ts"] <= train_end()
     return g
 
 
@@ -86,6 +85,15 @@ def _features(g: pd.DataFrame) -> pd.DataFrame:
     return g
 
 
+def train_end() -> pd.Timestamp:
+    """학습 기간의 마지막 시각 = 데이터 첫 시각 + 71시간 (원본: 2022-03-10 08:00)."""
+    return mme_data.load_table()["ts"].min() + pd.Timedelta(hours=TRAIN_HOURS - 1)
+
+
+def valid_end() -> pd.Timestamp:
+    return train_end() + pd.Timedelta(hours=VALID_HOURS)
+
+
 @lru_cache(maxsize=1)
 def score_table() -> pd.DataFrame:
     """모든 장비·KPI·시각의 이상 점수와 알람 여부. 처음 한 번만 계산하고 재사용한다."""
@@ -100,7 +108,7 @@ def score_table() -> pd.DataFrame:
     g["is_alarm"] = g["score"] >= threshold
     g["direction"] = np.where(g["z_prof"] >= 0, "급증", "급감")
     g = _attach_usual(g)
-    g["period"] = np.where(g["ts"] <= TRAIN_END, "학습", np.where(g["ts"] <= VALID_END, "검증", "평가"))
+    g["period"] = np.where(g["ts"] <= train_end(), "학습", np.where(g["ts"] <= valid_end(), "검증", "평가"))
     return g.drop(columns=["y", "hour", "is_train"])
 
 

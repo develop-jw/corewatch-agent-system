@@ -22,7 +22,7 @@ OUT.mkdir(exist_ok=True)
 # ---- 1) 선택 기록 먼저 (채점 전) ----
 card = {
     "model": detect.MODEL_VERSION, "features": detect.FEATURES, "alarm_budget_train": detect.ALARM_BUDGET,
-    "split": {"train_end": str(detect.TRAIN_END), "valid_end": str(detect.VALID_END)},
+    "split": {"train_end": str(detect.train_end()), "valid_end": str(detect.valid_end())},
     "selection_rule": "학습 구간 알람률 0.3% 고정, 검증 구간 최다 탐지 (동점 시 학습 오탐 적은·단순한 모델)",
     "selection_result": "검증 10건 중 B0 4 / M1 9 / M2 10 → M2 선택 (2026-10-17 비교)",
     "eval_rule": "평가 구간은 1회만 채점, 결과가 나빠도 모델을 고쳐 재채점하지 않음",
