@@ -38,6 +38,16 @@ RATE = {"comb_atch_45005": 75.0, "comb_atch_etc": 30.0, "comb_tau": 99.7, "ddn":
         "srmo": 99.99, "srmt": 99.99, "ue_dtch": 99.8}
 
 
+def kpi_names(p: str) -> tuple[str, str]:
+    """절차 이름 → (시도 KPI, 성공률 KPI). 실제 데이터와 같은 이름 규칙을 따른다.
+    예) pag_sms → pag_sms_att, pag_sms_succ_rate / comb_atch_45005 → comb_atch_att_45005, comb_atch_succ_rate_45005"""
+    for suffix in ("_45005", "_etc"):
+        if p.endswith(suffix):
+            base = p[: -len(suffix)]
+            return f"{base}_att{suffix}", f"{base}_succ_rate{suffix}"
+    return f"{p}_att", f"{p}_succ_rate"
+
+
 def daily_shape(hours: pd.DatetimeIndex) -> np.ndarray:
     """하루 패턴: 새벽 4시 무렵 가장 적고(약 0.25배) 오후 늦게 가장 많음(약 1.0배)."""
     h = hours.hour.to_numpy()
@@ -50,8 +60,9 @@ for dev in DEVICES:
     for p in PROCEDURES:
         att = SCALE[p] * dev_size * daily_shape(HOURS) * rng.normal(1.0, 0.04, len(HOURS))
         rate = RATE[p] + rng.normal(0, max(0.02, (100 - RATE[p]) * 0.05), len(HOURS))
-        rows.append(pd.DataFrame({"src_nm": dev, "variable": f"{p}_att", "ds": HOURS, "value": att.round(0)}))
-        rows.append(pd.DataFrame({"src_nm": dev, "variable": f"{p}_succ_rate", "ds": HOURS,
+        att_kpi, rate_kpi = kpi_names(p)
+        rows.append(pd.DataFrame({"src_nm": dev, "variable": att_kpi, "ds": HOURS, "value": att.round(0)}))
+        rows.append(pd.DataFrame({"src_nm": dev, "variable": rate_kpi, "ds": HOURS,
                                   "value": np.clip(rate, 0, 100).round(2)}))
 df = pd.concat(rows, ignore_index=True)
 

@@ -8,6 +8,8 @@ import re
 
 from langsmith import traceable
 
+from .prompts import HYPOTHESIS_SYSTEM, INCIDENT_PATTERN, hypothesis_user
+
 
 class FakeLLM:
     def __init__(self, name: str, usd_per_1k_tokens: float):
@@ -26,8 +28,8 @@ class FastLLM(FakeLLM):
     @traceable(run_type="llm", name="fast_llm.route")
     def route(self, query: str) -> tuple[dict, dict]:
         """Wave 5 — 쿼리 라우팅. 장애 관련이면 incident 파이프라인, 아니면 chat 직행."""
-        incident = bool(re.search(r"장애|진단|다운|지연|급증|incident|티켓", query))
-        result = {"route": "incident" if incident else "chat", "needs_analysis": False}
+        incident = bool(re.search(INCIDENT_PATTERN, query))
+        result = {"route": "incident" if incident else "chat", "needs_analysis": True}
         return result, self._usage(query, str(result))
 
     @traceable(run_type="llm", name="fast_llm.plan")
@@ -123,3 +125,28 @@ class QualityLLM(FakeLLM):
         if on_token is not None:
             on_token(draft)
         return draft, self._usage(query + str(feedback), draft)
+
+
+    @traceable(run_type="llm", name="quality_llm.write_hypothesis")
+    async def write_hypothesis(self, alarm_desc: str, facts_text: str, runbook_text: str, attempt: int,
+                               feedback: str | None, on_token=None) -> tuple[str, dict]:
+        """CoreWatch ③ AI 원인 추정 (결정론). 1차는 일부러 사실에 없는 숫자(37.5)를 넣어
+        수치 검사(validate)가 반려하는 흐름을 재현하고, 2차에 고친다."""
+        common = "여러 장비 동시 이상" in facts_text
+        lines = []
+        if common:
+            lines.append("원인 후보 1) 여러 장비에 공통인 연동 구간 또는 상위 망 문제 [F4][R1]")
+        else:
+            lines.append("원인 후보 1) 이 장비 자체의 설정 변경이나 담당 지역 기지국 문제 [F4][R1]")
+        if "함께 감소" in facts_text:
+            lines.append("원인 후보 2) 요청을 보내는 쪽(상위 장비·연동 구간)의 문제 — 시도와 성공률이 함께 줄었음 [F5][R1]")
+        if attempt == 1:
+            lines.append("영향 규모는 약 37.5%로 추정됩니다.")
+        lines += ["점검 순서:", "1. [R1]의 첫 번째 점검 항목부터 확인", "2. 같은 시각 다른 장비 상태 재확인 [F4]",
+                  "3. 짝 지표 변화 추이 관찰 [F5]"]
+        text = "\n".join(lines)
+        if on_token is not None:
+            on_token(text)
+        usage = self._usage(hypothesis_user(alarm_desc, facts_text, runbook_text, feedback), text)
+        usage["prompt"] = f"[SYSTEM]\n{HYPOTHESIS_SYSTEM}\n\n[USER]\n" + hypothesis_user(alarm_desc, facts_text, runbook_text, feedback)
+        return text, usage

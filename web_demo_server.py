@@ -37,6 +37,20 @@ async def proxy_health():
     return JSONResponse(r.json(), status_code=r.status_code)
 
 
+@app.get("/meta")
+async def proxy_meta():
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(f"{BACKEND}/meta")
+    return JSONResponse(r.json(), status_code=r.status_code)
+
+
+@app.get("/alarms")
+async def proxy_alarms(request: Request):
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(f"{BACKEND}/alarms", params=dict(request.query_params))
+    return JSONResponse(r.json(), status_code=r.status_code)
+
+
 @app.post("/chat")
 async def proxy_chat(req: Request):
     body = await req.body()

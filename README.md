@@ -30,18 +30,33 @@ CoreWatch는 이 두 단계를 돕습니다.
 | 기술 | 이 프로젝트에서 하는 일 |
 |---|---|
 | 머신러닝 이상 탐지 (Isolation Forest) | 네 가지 단서를 종합해 이상 점수를 계산: 평소 같은 시간대와의 차이, 1시간 전과의 차이, 같은 시각 다른 장비와의 차이, 같은 절차의 짝 지표(시도 건수 ↔ 성공률)와의 관계 |
-| MCP (Model Context Protocol) | AI가 부를 수 있는 도구 제공: 지표 조회, 이상 점수 조회, 알람 목록, 주변 상황 조회 |
-| 멀티 에이전트 (LangGraph) | 조사를 지표 분석 · 장비 비교 · 절차 검색 담당 에이전트로 나누고, 총괄 에이전트가 필요한 것만 호출 *(구현 중)* |
-| RAG (검색 증강 생성) | 점검 절차 문서 중 알람 내용과 뜻이 가까운 문서를 찾아 리포트 근거로 사용 *(구현 중)* |
+| MCP (Model Context Protocol) | AI가 부를 수 있는 도구 제공: 지표 조회, 이상 점수 조회, 알람 목록, 주변 상황 조회, 점검 절차 검색 |
+| 멀티 에이전트 (LangGraph) | 조사를 지표 분석 · 장비 비교 · 절차 검색 담당 에이전트(각각 작은 그래프)로 나누고, 총괄 에이전트가 동시에 호출 |
+| RAG (검색 증강 생성) | 점검 절차 문서 5종을 조각으로 나눠 벡터로 저장하고, 알람과 가까운 조각을 찾아 리포트 근거로 사용 (조각마다 관련 지표를 메타데이터로 보관) |
 | 실시간 진행 표시 (SSE) | 분석이 어느 단계까지 진행됐는지 화면에 바로바로 표시 |
+| 수치 검사 | AI가 쓴 원인 추정에 조회하지 않은 숫자나 없는 근거 번호가 있으면 반려하고 1번 다시 쓰게 함 |
 | 실행 기록 (LangSmith) | 요청 하나가 어떤 단계와 도구를 거쳤는지, 단계별 시간과 사용량을 기록 |
+
+## 분석 흐름
+
+```
+질문 분류 → 계획(질문에서 장비·지표·시각 찾기, 분석 절차 받기)
+         → 조사: 지표 분석 · 장비 비교 · 절차 검색 담당 에이전트 동시 실행 (실패 시 1번 재조사)
+         → 판단 유형 분류(여러 장비 동시 / 한 장비만 / 지속형 / 시도 건수 적음)
+         → 리포트 작성(사실·절차는 코드가, 원인 추정만 AI가) → 수치 검사(불합격 시 1번 재작성) → 완성
+```
 
 ## 폴더 구조
 
 ```
-mme/                데이터 읽기(data.py), 이상 탐지 모델(detect.py)
+mme/                데이터 읽기(data.py), 이상 탐지 모델(detect.py), 점검 절차 검색(rag.py)
 mcp_server.py       AI가 부르는 도구 모음
-agent/              에이전트 흐름 (질문 분류 → 계획 → 조사 → 작성 → 검사)
+agent/graph.py      에이전트 흐름 연결
+agent/nodes/        흐름의 각 단계 (분류·계획·조사·판단·작성·검사)
+agent/subagents/    조사 담당 에이전트 3개 (지표 분석·장비 비교·절차 검색)
+data/runbooks_mme/  점검 절차 문서 5종
+data/synthetic/     합성 데이터와 일부러 넣은 이상 사례 목록
+scripts/            합성 데이터 생성기
 eval/               이상 탐지 모델 평가
 tests/              도구를 하나씩 직접 실행해 보는 확인용 스크립트
 server.py           백엔드 서버 (포트 8100)
@@ -59,17 +74,26 @@ Python 3.11 이상이 필요합니다.
 bash sh/setup_venv.sh
 cp .env.example .env
 
-# 2) 도구 확인
+# 2) 단위 테스트 (합성 데이터 + 가짜 AI, 외부 호출 없음)
+.venv/bin/python3 -m pytest -q tests
+
+# 3) 도구 확인 (실제 데이터)
 DATA_MODE=original .venv/bin/python3 tests/try_kpi_tool.py
 DATA_MODE=original .venv/bin/python3 tests/try_detect_tool.py
 
-# 3) 이상 탐지 모델 평가
+# 4) 이상 탐지 모델 평가
 DATA_MODE=original .venv/bin/python3 eval/eval_detector.py
 
-# 4) 에이전트와 웹 화면 실행
+# 5) 에이전트와 웹 화면 실행
 bash sh/run_agent_ollma.sh      # 로컬 AI 모델(Ollama)로 실행
 bash sh/run_frontend.sh         # 브라우저에서 http://localhost:8600
 ```
+
+Windows(PowerShell)에서는 `.venv/bin/python3` 대신 `.venv\Scripts\python.exe`를 쓰고, 환경변수는
+`$env:DATA_MODE="original"`처럼 먼저 지정한 뒤 실행합니다. `sh/*.sh` 스크립트는 Git Bash에서 실행합니다.
+
+웹 화면 왼쪽의 알람 목록에서 알람을 누르거나, 채팅창에 `MME-A03 pag_sms_succ_rate 2026-10-16 08:00 알람 원인 분석해줘`처럼
+장비·지표·시각을 입력하면 분석이 시작됩니다. 장비 이름만 입력하면 그 장비의 가장 강한 알람을 분석합니다.
 
 `DATA_MODE`로 사용할 데이터를 고릅니다.
 
@@ -77,6 +101,8 @@ bash sh/run_frontend.sh         # 브라우저에서 http://localhost:8600
 |---|---|---|
 | `original` | 제공받은 실제 장비 데이터 (엑셀) | 내 컴퓨터 안에서, 로컬 AI 모델로만 사용 |
 | `synthetic` (기본값) | 실제 데이터와 무관하게 새로 만든 가짜 데이터 | 외부 AI 서비스, 실행 기록 서비스, 공개 시연 |
+
+실제 데이터 모드에서 외부 AI 서비스(OpenAI)나 실행 기록 서비스(LangSmith)를 켜면 서버가 시작을 거부합니다.
 
 ## 데이터 사용 원칙
 

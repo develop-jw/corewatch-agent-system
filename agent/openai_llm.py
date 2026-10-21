@@ -26,6 +26,8 @@ from pathlib import Path
 import httpx
 from langsmith import traceable
 
+from .prompts import HYPOTHESIS_SYSTEM, INCIDENT_PATTERN, ROUTE_SYSTEM, hypothesis_user
+
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 
@@ -35,7 +37,7 @@ def _load_known_systems() -> set[str]:
     log-service 미인식) 수정."""
     path = Path(__file__).resolve().parent.parent / "data" / "monitoring.json"
     try:
-        return set(json.loads(path.read_text()).keys())
+        return set(json.loads(path.read_text(encoding="utf-8")).keys())
     except (OSError, json.JSONDecodeError):
         return {"auth-service", "web-01"}
 
@@ -110,11 +112,7 @@ class OpenAIFastLLM(OpenAILLM):
 
     @traceable(run_type="llm", name="openai_fast.route")
     def route(self, query: str) -> tuple[dict, dict]:
-        system = ("당신은 ICT 운영 지원 라우터다. 사용자 요청을 분류하라. "
-                  "장애·성능 저하·지연·진단·모니터링·티켓 등 운영 이슈면 route=incident, "
-                  "인사·잡담·일반 질문이면 route=chat. "
-                  "needs_analysis는 패턴 비교/통계 분석이 꼭 필요할 때만 true. "
-                  + ROUTE_INSTRUCTIONS)
+        system = ROUTE_SYSTEM + " " + ROUTE_INSTRUCTIONS
         content, usage = self._chat(system, query, json_mode=True)
         try:
             raw = json.loads(content)
@@ -124,7 +122,7 @@ class OpenAIFastLLM(OpenAILLM):
         except (json.JSONDecodeError, AttributeError):
             # JSON 모드는 "유효한 JSON"만 보장할 뿐 스키마까지 강제하진 않으므로,
             # 필드 누락·오탐 시 코드 레벨 fallback을 둔다(W6 정신, ollama_llm.py와 동일).
-            incident = bool(re.search(r"장애|진단|다운|지연|급증|incident|티켓", query))
+            incident = bool(re.search(INCIDENT_PATTERN, query))
             result = {"route": "incident" if incident else "chat",
                       "needs_analysis": False}
         return result, usage
@@ -233,6 +231,18 @@ class OpenAIQualityLLM(OpenAILLM):
             user += f"\n\n## 이전 초안에 대한 검증 반려 사유 (반드시 반영)\n{feedback}"
         content, usage = self._chat(system, user)
         usage["prompt"] = f"[SYSTEM]\n{system}\n\n[USER]\n{user}"
+        if on_token is not None:
+            on_token(content)
+        return content, usage
+
+
+    @traceable(run_type="llm", name="openai_quality.write_hypothesis")
+    async def write_hypothesis(self, alarm_desc: str, facts_text: str, runbook_text: str, attempt: int,
+                               feedback: str | None, on_token=None) -> tuple[str, dict]:
+        """CoreWatch ③ AI 원인 추정 (합성 데이터 모드에서만 사용 — server.py가 원본 모드를 차단)."""
+        user = hypothesis_user(alarm_desc, facts_text, runbook_text, feedback)
+        content, usage = self._chat(HYPOTHESIS_SYSTEM, user)
+        usage["prompt"] = f"[SYSTEM]\n{HYPOTHESIS_SYSTEM}\n\n[USER]\n{user}"
         if on_token is not None:
             on_token(content)
         return content, usage

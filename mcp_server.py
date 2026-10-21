@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from mme import data as mme_data
 from mme import detect as mme_detect
+from mme import rag as mme_rag
 
 mcp = FastMCP(name="capstone-all-total-ops")
 
@@ -37,7 +38,7 @@ class SystemStatus(BaseModel):
 @mcp.tool()
 def get_monitoring_status(system_name: str) -> SystemStatus:
     """지정된 시스템의 현재 모니터링 상태를 조회합니다 (호출마다 값이 달라지는 동적 Tool)."""
-    monitoring_data = json.loads((DATA_DIR / "monitoring.json").read_text())
+    monitoring_data = json.loads((DATA_DIR / "monitoring.json").read_text(encoding="utf-8"))
     if system_name not in monitoring_data:
         return SystemStatus(
             system_name=system_name, status="unknown",
@@ -223,7 +224,7 @@ def alarm_analysis_prompt(device: str, kpi: str, ts: str) -> str:
     1. get_kpi_series로 알람 전후 6시간의 지표 값을 조회해 언제부터 얼마나 달라졌는지 확인하세요.
     2. detect_anomaly로 이상 점수와 평소 값을 확인하세요.
     3. get_context로 짝 지표(시도 건수↔성공률), 같은 시각 다른 장비, 같은 장비의 주변 알람을 확인하세요.
-    4. 해당 지표의 점검 절차 문서를 확인하세요.
+    4. search_runbook으로 해당 지표의 점검 절차 문서를 찾아 확인하세요.
     5. 확인한 사실만 근거로 가능한 원인과 점검 순서를 제시하세요. 근거가 부족하면 '원인을 특정할 수 없음'이라고 답하세요.
     """
 
@@ -234,7 +235,7 @@ def get_incident_runbook(incident_type: str) -> str:
     runbook_path = DATA_DIR / "runbooks" / f"{incident_type}.md"
     if not runbook_path.exists():
         return f"# Runbook Not Found\n\nNo runbook for incident type: {incident_type}"
-    return runbook_path.read_text()
+    return runbook_path.read_text(encoding="utf-8")
 
 
 @mcp.prompt()
@@ -251,6 +252,23 @@ def incident_analysis_prompt(system_name: str, symptom: str) -> str:
 2. 증상에 해당하는 runbook(runbook://incident-response/...)을 확인하세요.
 3. 위 정보를 종합해 가능한 원인과 권장 조치를 제시하세요.
 """
+
+
+# ---- CoreWatch 도구 ④ 점검 절차 검색 (RAG) ----
+@mcp.tool()
+def search_runbook(query: str, kpi: str = "", k: int = 3, doc_id: str = "") -> list[dict]:
+    """MME 점검 절차 문서에서 질문과 뜻이 가까운 부분을 찾아 돌려줍니다 (문서 ID·제목·본문·점수).
+    kpi를 주면 그 지표를 다루는 부분을 우선하고, doc_id(예: "RB-00")를 주면 그 문서 안에서만 찾습니다.
+    예) query="문자 호출 성공률 급감 여러 장비 동시", kpi="pag_sms_succ_rate"
+    """
+    return mme_rag.get_retriever().search(query, kpi=kpi or None, k=k, doc_id=doc_id or None)
+
+
+@mcp.resource("runbook://mme/{doc_id}")
+def get_mme_runbook(doc_id: str) -> str:
+    """MME 점검 절차 문서 전체를 돌려줍니다. 예) runbook://mme/RB-04"""
+    path = next(mme_rag.DOC_DIR.glob(f"{doc_id}_*.md"), None)
+    return path.read_text(encoding="utf-8") if path else f"문서를 찾을 수 없습니다: {doc_id}"
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()   # LANGCHAIN_TRACING_V2 / API_KEY / PROJECT — import보다 먼저
 
+import pandas as pd
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from langsmith import traceable
@@ -35,6 +36,17 @@ CREATION_COUNT = 0   # Wave 1 — 프로세스 내 Agent 번들 생성 횟수 (�
 class ChatRequest(BaseModel):   # Wave 1 — Pydantic 요청 검증
     message: str
     thread_id: str = "default"
+
+
+def check_data_mode() -> str:
+    """원본 데이터는 내 컴퓨터 안에서만: 원본 모드에서 외부 LLM(OpenAI)·LangSmith 추적을 켜면 기동을 거부한다."""
+    mode = os.environ.get("DATA_MODE", "synthetic")
+    backend = os.environ.get("LLM_BACKEND", "fake")
+    tracing = os.environ.get("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+    if mode == "original" and (backend == "openai" or tracing):
+        raise RuntimeError("원본 데이터 모드(DATA_MODE=original)에서는 OpenAI 백엔드와 LangSmith 추적을 쓸 수 없습니다. "
+                           "LLM_BACKEND=ollama, LANGCHAIN_TRACING_V2=false로 실행하거나 DATA_MODE=synthetic을 쓰세요.")
+    return mode
 
 
 def _build_llms():
@@ -63,6 +75,7 @@ def _build_llms():
 async def lifespan(app: FastAPI):
     global CREATION_COUNT
     CREATION_COUNT += 1
+    app.state.data_mode = check_data_mode()
     mcp = MCPClient()
     await mcp.start()   # Wave 2 — MCP subprocess는 서버 수명 동안 딱 1개
     backend, fast_llm, quality_llm = _build_llms()
@@ -96,8 +109,30 @@ async def health():
             "creation_count": CREATION_COUNT,
             "supervisor_version": app.state.deps.version,
             "llm_backend": app.state.llm_backend,
+            "data_mode": app.state.data_mode,
             "fast_llm": app.state.deps.fast_llm.name,
             "quality_llm": app.state.deps.quality_llm.name}
+
+
+@app.get("/meta")
+async def meta():
+    """화면이 처음 열릴 때 쓰는 정보: 데이터 모드, 데이터 기간, 평가(알람 표시) 기간."""
+    from mme import data as mme_data
+    from mme import detect as mme_detect
+    t = mme_data.load_table()
+    return {"data_mode": app.state.data_mode, "start": str(t["ts"].min()), "end": str(t["ts"].max()),
+            "alarm_from": str(mme_detect.valid_end() + pd.Timedelta(hours=1)),
+            "devices": mme_data.list_devices(), "model": mme_detect.MODEL_VERSION}
+
+
+@app.get("/alarms")
+async def alarms(start: str | None = None, end: str | None = None, limit: int = 100):
+    """알람 목록 (점수 높은 순). 화면의 알람 패널이 쓴다."""
+    from mme import detect as mme_detect
+    rows = mme_detect.list_alarms(start, end).sort_values("score", ascending=False).head(limit)
+    return [{"device": r.device, "kpi": r.kpi, "ts": r.ts.strftime("%Y-%m-%d %H:00"),
+             "value": round(float(r.value), 2), "usual": round(float(r.usual), 2),
+             "direction": r.direction, "score": round(float(r.score), 3)} for r in rows.itertuples()]
 
 
 @app.get("/version")

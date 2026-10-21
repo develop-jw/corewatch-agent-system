@@ -17,6 +17,8 @@ from pathlib import Path
 import httpx
 from langsmith import traceable
 
+from .prompts import HYPOTHESIS_SYSTEM, INCIDENT_PATTERN, ROUTE_SYSTEM, hypothesis_user
+
 OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 
 
@@ -26,7 +28,7 @@ def _load_known_systems() -> set[str]:
     log-service 미인식) 수정."""
     path = Path(__file__).resolve().parent.parent / "data" / "monitoring.json"
     try:
-        return set(json.loads(path.read_text()).keys())
+        return set(json.loads(path.read_text(encoding="utf-8")).keys())
     except (OSError, json.JSONDecodeError):
         return {"auth-service", "web-01"}
 
@@ -150,10 +152,7 @@ class OllamaFastLLM(OllamaLLM):
 
     @traceable(run_type="llm", name="ollama_fast.route")
     def route(self, query: str) -> tuple[dict, dict]:
-        system = ("당신은 ICT 운영 지원 라우터다. 사용자 요청을 분류하라. "
-                  "장애·성능 저하·지연·진단·모니터링·티켓 등 운영 이슈면 route=incident, "
-                  "인사·잡담·일반 질문이면 route=chat. "
-                  "needs_analysis는 패턴 비교/통계 분석이 꼭 필요할 때만 true.")
+        system = ROUTE_SYSTEM
         content, usage = self._chat(system, query, schema=ROUTE_SCHEMA)
         try:
             raw = json.loads(content)
@@ -162,9 +161,9 @@ class OllamaFastLLM(OllamaLLM):
                       "needs_analysis": bool(raw.get("needs_analysis", False))}
         except (json.JSONDecodeError, AttributeError):
             # 소형 모델의 형식 붕괴 대비 — 코드 레벨 fallback (W6 정신)
-            incident = bool(re.search(r"장애|진단|다운|지연|급증|incident|티켓", query))
+            incident = bool(re.search(INCIDENT_PATTERN, query))
             result = {"route": "incident" if incident else "chat",
-                      "needs_analysis": False}
+                      "needs_analysis": True}
         return result, usage
 
     @traceable(run_type="llm", name="ollama_fast.plan")
@@ -259,3 +258,13 @@ class OllamaQualityLLM(OllamaLLM):
         if feedback:
             user += f"\n\n## 이전 초안에 대한 검증 반려 사유 (반드시 반영)\n{feedback}"
         return await self._chat_stream(system, user, on_token=on_token)
+
+
+    @traceable(run_type="llm", name="ollama_quality.write_hypothesis")
+    async def write_hypothesis(self, alarm_desc: str, facts_text: str, runbook_text: str, attempt: int,
+                               feedback: str | None, on_token=None) -> tuple[str, dict]:
+        """CoreWatch ③ AI 원인 추정 — 조회한 사실·점검 절차 번호를 근거로만 쓰게 한다."""
+        user = hypothesis_user(alarm_desc, facts_text, runbook_text, feedback)
+        text, usage = await self._chat_stream(HYPOTHESIS_SYSTEM, user, on_token=on_token)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()   # qwen3 생각 과정 제거
+        return text, usage
