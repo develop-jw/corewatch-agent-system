@@ -10,6 +10,7 @@
 """
 import json
 import os
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -27,8 +28,9 @@ from langsmith.run_helpers import get_current_run_tree
 from pydantic import BaseModel
 
 from agent.deps import SupervisorDeps
-from agent.fake_llm import FastLLM, QualityLLM
 from agent.graph import build_graph
+from agent.llm_factory import build_llms
+from agent.metrics import Metrics
 from agent.mcp_client import MCPClient
 from agent.session_store import SqliteSessionStore
 from agent.supervisor_v1 import run_v1
@@ -54,28 +56,6 @@ def check_data_mode() -> str:
     return mode
 
 
-def _build_llms() -> tuple[str, Any, Any]:
-    """LLM_BACKEND=fake(기본, 결정론) | ollama(로컬 실모델) | openai(실제 OpenAI API)."""
-    backend = os.environ.get("LLM_BACKEND", "fake")
-    if backend == "ollama":
-        from agent.ollama_llm import OllamaFastLLM, OllamaQualityLLM
-        fast = OllamaFastLLM(os.environ.get("OLLAMA_FAST_MODEL", "qwen3:0.6b"),
-                             usd_per_1k_tokens=0.00015)
-        quality = OllamaQualityLLM(os.environ.get("OLLAMA_QUALITY_MODEL", "qwen3:8b"),
-                                   usd_per_1k_tokens=0.005)
-        return backend, fast, quality
-    if backend == "openai":
-        from agent.openai_llm import OpenAIFastLLM, OpenAIQualityLLM
-        fast = OpenAIFastLLM(os.environ.get("OPENAI_FAST_MODEL", "gpt-4o-mini"),
-                             usd_per_1k_tokens=0.00015)
-        quality = OpenAIQualityLLM(os.environ.get("OPENAI_QUALITY_MODEL", "gpt-4o"),
-                                   usd_per_1k_tokens=0.005)
-        return backend, fast, quality
-    fast = FastLLM("fast-model-stub", usd_per_1k_tokens=0.00015)
-    quality = QualityLLM("quality-model-stub", usd_per_1k_tokens=0.005)
-    return backend, fast, quality
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global CREATION_COUNT
@@ -83,7 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.data_mode = check_data_mode()
     mcp = MCPClient()
     await mcp.start()   # Wave 2 — MCP subprocess는 서버 수명 동안 딱 1개
-    backend, fast_llm, quality_llm = _build_llms()
+    backend, fast_llm, quality_llm = build_llms()
     app.state.llm_backend = backend
     deps = SupervisorDeps(
         fast_llm=fast_llm,
@@ -97,6 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.hitl = os.environ.get("HITL_ENABLED", "true").lower() == "true"
     app.state.graph = (build_graph(deps, checkpointer=InMemorySaver() if app.state.hitl else None)
                        if deps.version == "v2" else None)
+    app.state.metrics = Metrics()   # 운영 지표 (요청 수·응답 시간·검사 통과율·승인 현황)
     app.state.pending = {}   # run_id → {"thread_id", "message"} : 승인을 기다리는 요청
     app.state.instance_id = id(deps)
     yield
@@ -144,6 +125,14 @@ async def alarms(start: str | None = None, end: str | None = None, limit: int = 
              "direction": r.direction, "score": round(float(r.score), 3)} for r in rows.itertuples()]
 
 
+@app.get("/metrics")
+async def metrics() -> dict:
+    """운영 지표 — 서버가 켜진 뒤 처리한 요청의 건수, 응답 시간, 수치 검사 1차 통과율, 승인 현황, AI 비용."""
+    from mme import detect as mme_detect
+    return {**app.state.metrics.summary(), "llm_backend": app.state.llm_backend,
+            "detector_model": mme_detect.MODEL_VERSION}
+
+
 @app.get("/version")
 async def version() -> dict:
     return {"supervisor_version": app.state.deps.version}
@@ -177,16 +166,20 @@ async def _handle_chat(message: str, thread_id: str) -> tuple[dict, str | None]:
     history = deps.session_store.load(thread_id)   # Wave 12
     if deps.version == "v2":
         run_id = f"run-{uuid.uuid4().hex[:8]}"
+        t0 = time.perf_counter()
         result = await app.state.graph.ainvoke(
             {"query": message, "thread_id": thread_id, "history": history,
              "events": [], "cost_usd": 0.0}, _config(run_id))
         if "__interrupt__" in result:   # 위험 조치 → 승인 대기. 확정 전이므로 대화 기록에는 아직 남기지 않는다
-            app.state.pending[run_id] = {"thread_id": thread_id, "message": message}
+            app.state.pending[run_id] = {"thread_id": thread_id, "message": message,
+                                         "elapsed": time.perf_counter() - t0}
+            app.state.metrics.approval_requested += 1
             req = result["__interrupt__"][0].value
             result = {**result, "final": req["draft"] + "\n\n(운영자 승인 대기 중)",
                       "approval_request": {"run_id": run_id, "actions": req["actions"]}}
             rt = get_current_run_tree()
             return result, (str(rt.id) if rt else None)
+        app.state.metrics.record(result, time.perf_counter() - t0)
     else:
         result = await run_v1(deps, message, thread_id, history)   # Wave 14
     deps.session_store.append(thread_id, "user", message)
@@ -213,7 +206,9 @@ async def chat_resume(req: ResumeRequest) -> dict:
     pending = app.state.pending.pop(req.run_id, None)
     if pending is None:
         return {"error": "승인을 기다리는 요청이 없습니다 (이미 처리했거나 서버가 다시 시작됨)."}
+    t0 = time.perf_counter()
     result = await app.state.graph.ainvoke(Command(resume={"approved": req.approved}), _config(req.run_id))
+    app.state.metrics.record(result, time.perf_counter() - t0 + pending.get("elapsed", 0.0))
     store = app.state.deps.session_store
     store.append(pending["thread_id"], "user", pending["message"])
     store.append(pending["thread_id"], "assistant", result["final"])
@@ -258,7 +253,7 @@ async def chat_resume_stream(run_id: str, approved: bool) -> StreamingResponse:
             snap = await app.state.graph.aget_state(_config(run_id))
             seen = len(snap.values.get("events", []))
             async for chunk in _stream_graph(Command(resume={"approved": approved}), run_id, seen,
-                                             pending["message"], pending["thread_id"]):
+                                             pending["message"], pending["thread_id"], pending.get("elapsed", 0.0)):
                 yield chunk
         yield "data: [DONE]\n\n"
 
@@ -266,12 +261,13 @@ async def chat_resume_stream(run_id: str, approved: bool) -> StreamingResponse:
 
 
 async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: str,
-                        thread_id: str) -> AsyncIterator[str]:
+                        thread_id: str, pending_elapsed: float = 0.0) -> AsyncIterator[str]:
     """그래프를 실행하며 SSE 문자열을 내보낸다.
     "updates"는 노드가 끝날 때마다의 상태 변화, "custom"은 실행 중 바로 흘려보내는 토큰(AnswerToken)이다.
     위험 조치가 있으면 그래프가 멈추고(__interrupt__) ApprovalRequired 이벤트를 보낸 뒤 끝난다."""
     deps = app.state.deps
     final, last_prompt = "", None
+    t0 = time.perf_counter()
     async for mode, payload in app.state.graph.astream(inp, _config(run_id), stream_mode=["updates", "custom"]):
         if mode == "custom":
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -279,7 +275,9 @@ async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: st
         for node_name, delta in payload.items():
             if node_name == "__interrupt__":
                 req = delta[0].value
-                app.state.pending[run_id] = {"thread_id": thread_id, "message": message}
+                app.state.pending[run_id] = {"thread_id": thread_id, "message": message,
+                                             "elapsed": time.perf_counter() - t0}
+                app.state.metrics.approval_requested += 1
                 ev = {"type": "ApprovalRequired", "run_id": run_id, "actions": req["actions"], "draft": req["draft"]}
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
                 return
@@ -292,9 +290,10 @@ async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: st
                 final = delta["final"]
             if delta.get("last_prompt"):
                 last_prompt = delta["last_prompt"]
-    if not last_prompt:
-        snap = await app.state.graph.aget_state(_config(run_id))
-        last_prompt = snap.values.get("last_prompt") if snap else None
+    snap = await app.state.graph.aget_state(_config(run_id)) if app.state.hitl else None
+    values = snap.values if snap else {}
+    last_prompt = last_prompt or values.get("last_prompt")
+    app.state.metrics.record(values or {"route": "unknown"}, time.perf_counter() - t0 + pending_elapsed)
     yield f"data: {json.dumps({'type': 'FinalAnswer', 'reply': final, 'prompt': last_prompt}, ensure_ascii=False)}\n\n"
     deps.session_store.append(thread_id, "user", message)
     deps.session_store.append(thread_id, "assistant", final)

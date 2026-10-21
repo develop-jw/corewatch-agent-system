@@ -45,6 +45,13 @@ async def proxy_meta() -> JSONResponse:
     return JSONResponse(r.json(), status_code=r.status_code)
 
 
+@app.get("/metrics")
+async def proxy_metrics() -> JSONResponse:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{BACKEND}/metrics")
+    return JSONResponse(r.json(), status_code=r.status_code)
+
+
 @app.get("/alarms")
 async def proxy_alarms(request: Request) -> JSONResponse:
     async with httpx.AsyncClient(timeout=30.0) as client:

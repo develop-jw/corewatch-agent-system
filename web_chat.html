@@ -30,6 +30,12 @@
   .alarm .val { color: #9a9ac0; margin-top: 2px; font-size: 12px; }
   .down { color: #ff8a8a; } .up { color: #ffcf6e; }
 
+  /* ---- 운영 지표 ---- */
+  #metrics { border-top: 1px solid #3a3a52; padding: 10px 16px 12px; font-size: 12px; color: #9a9ac0; background: #222234; }
+  #metrics h4 { margin: 0 0 6px; font-size: 12px; color: #c3c3e0; }
+  #metrics .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+  #metrics b { color: #e2e2f0; font-weight: 600; }
+
   /* ---- 대화 ---- */
   section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   #log { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -72,6 +78,17 @@
           <div class="kpi">{{ a.kpi }}</div>
           <div class="val"><span :class="a.direction === '급감' ? 'down' : 'up'">{{ a.direction }}</span>
             · 값 {{ a.value }} (평소 {{ a.usual }}) · 점수 {{ a.score }}</div>
+        </div>
+      </div>
+      <div id="metrics" v-if="metrics">
+        <h4>운영 지표 (서버 시작 이후)</h4>
+        <div class="grid">
+          <span>분석 요청 <b>{{ metrics.requests }}</b>건</span>
+          <span>평균 응답 <b>{{ metrics.latency_sec.avg ?? '-' }}</b>초</span>
+          <span>1차 검사 통과 <b>{{ metrics.validation.first_pass_rate == null ? '-' : Math.round(metrics.validation.first_pass_rate * 100) + '%' }}</b></span>
+          <span>승인 <b>{{ metrics.approval.approved }}</b> · 보류 <b>{{ metrics.approval.held }}</b></span>
+          <span>조사 실패 <b>{{ metrics.subagent_failures }}</b>건</span>
+          <span>AI 비용 <b>${{ metrics.cost_usd.toFixed(4) }}</b></span>
         </div>
       </div>
     </aside>
@@ -131,6 +148,9 @@ createApp({
     const log = ref([]);
     const input = ref('');
     const sending = ref(false);
+    const metrics = ref(null);
+    const loadMetrics = () => fetch('/metrics').then(r => r.json()).then(m => { metrics.value = m; }).catch(() => {});
+    loadMetrics();
     const logEl = ref(null);
     const thread = 't-web-' + Math.random().toString(36).slice(2, 8);
     let nextId = 0;
@@ -182,7 +202,7 @@ createApp({
       const es = new EventSource(url);
       let streamItem = null, streamAttempt = null;
       es.onmessage = (event) => {
-        if (event.data === '[DONE]') { es.close(); sending.value = false; return; }
+        if (event.data === '[DONE]') { es.close(); sending.value = false; loadMetrics(); return; }
         let e; try { e = JSON.parse(event.data); } catch { return; }
         if (e.type === 'AnswerToken') {
           if (!streamItem || streamAttempt !== e.attempt) {
@@ -210,7 +230,7 @@ createApp({
       es.onerror = () => { es.close(); sending.value = false; };
     }
 
-    return { backendLabel, dataMode, alarms, selected, log, input, sending, logEl, onSubmit, analyze, decide };
+    return { backendLabel, dataMode, alarms, selected, log, input, sending, logEl, onSubmit, analyze, decide, metrics };
   },
 }).mount('#app');
 </script>
