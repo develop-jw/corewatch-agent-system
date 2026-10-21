@@ -133,11 +133,13 @@ class QualityLLM(FakeLLM):
         """CoreWatch ③ AI 원인 추정 (결정론). 1차는 일부러 사실에 없는 숫자(37.5)를 넣어
         수치 검사(validate)가 반려하는 흐름을 재현하고, 2차에 고친다."""
         common = "여러 장비 동시 이상" in facts_text
+        m = re.search(r"\[F1\][^\n]*?값은 [^\n]*?에 ([\d,.]+)", facts_text)
+        value = f" — 알람 시각 값 {m.group(1)} [F1]" if m else ""
         lines = []
         if common:
-            lines.append("원인 후보 1) 여러 장비에 공통인 연동 구간 또는 상위 망 문제 [F4][R1]")
+            lines.append("원인 후보 1) 여러 장비에 공통인 연동 구간 또는 상위 망 문제 [F4][R1]" + value)
         else:
-            lines.append("원인 후보 1) 이 장비 자체의 설정 변경이나 담당 지역 기지국 문제 [F4][R1]")
+            lines.append("원인 후보 1) 이 장비 자체의 설정 변경이나 담당 지역 기지국 문제 [F4][R1]" + value)
         if "함께 감소" in facts_text:
             lines.append("원인 후보 2) 요청을 보내는 쪽(상위 장비·연동 구간)의 문제 — 시도와 성공률이 함께 줄었음 [F5][R1]")
         if attempt == 1:
