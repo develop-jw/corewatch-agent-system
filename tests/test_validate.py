@@ -36,3 +36,12 @@ def test_classify_fleet_vs_single() -> None:
     single = classify(kpi, {"peer_alarms": 0, "pair_change_pct": 1.0, "pair_value": 50000})
     assert "여러 장비 동시 이상" in fleet["patterns"] and "시도와 성공률이 함께 감소" in fleet["patterns"]
     assert "한 장비만 이상" in single["patterns"] and "3시간 연속 이상 (지속형)" in single["patterns"]
+
+
+def test_fail_on_restart_advice_for_fleet_wide_alarm() -> None:
+    facts = FACTS + "\n[F4] 판단 유형(코드 규칙): 여러 장비 동시 이상"
+    h = "원인 후보 1) 공통 구간 문제 [F2][R1]\n점검 순서:\n1. 연동 구간 확인\n2. 필요 시 장비 재기동 (운영자 승인 필요)"
+    r = check_hypothesis(h, facts, 4, 1)
+    assert not r["ok"] and any("RB-00" in p for p in r["problems"])
+    ok = "원인 후보 1) 공통 구간 문제 [F2][R1]\n점검 순서:\n1. 연동 구간 확인\n2. 공통 구간 점검 중 재기동은 보류"
+    assert check_hypothesis(ok, facts, 4, 1)["ok"]

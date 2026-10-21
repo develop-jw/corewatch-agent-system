@@ -5,6 +5,7 @@ LLM이 쓴 ③ AI 원인 추정에서
   2) 근거 번호([F1], [R1])가 실제로 있는 번호인지
   3) 근거 번호가 하나라도 있는지 (또는 '원인을 특정할 수 없음'이라고 했는지)
   4) '점검 순서'가 있는지
+  5) 여러 장비 동시 이상인데 개별 장비 재기동·롤백을 권하지 않았는지 (RB-00: 공통 구간 점검 중 재기동 보류)
 를 코드로 검사한다. 통과하지 못하면 이유를 알려 주고 1번만 다시 쓰게 한다.
 """
 import re
@@ -12,6 +13,7 @@ from typing import Any
 
 from langsmith import traceable
 
+from .approve import risky_actions
 from .state import AgentState
 
 MAX_ATTEMPTS = 2
@@ -36,6 +38,7 @@ def check_hypothesis(hypothesis: str, facts_text: str, n_facts: int, n_refs: int
     bad_refs = [f"F{i}" for i in f_ids if i > n_facts] + [f"R{i}" for i in r_ids if i > n_refs]
     no_basis = not (f_ids or r_ids) and "특정할 수 없음" not in hypothesis
     no_steps = "점검 순서" not in hypothesis and "특정할 수 없음" not in hypothesis
+    fleet_restart = "여러 장비 동시 이상" in facts_text and risky_actions(hypothesis)
     problems = []
     if bad:
         problems.append(f"조회한 사실에 없는 숫자를 썼습니다: {', '.join(f'{n:g}' for n in bad)}. 사실에 있는 숫자만 쓰세요.")
@@ -43,6 +46,9 @@ def check_hypothesis(hypothesis: str, facts_text: str, n_facts: int, n_refs: int
         problems.append(f"없는 근거 번호를 썼습니다: {', '.join(bad_refs)}.")
     if no_basis:
         problems.append("원인 후보마다 근거 번호([F1], [R1] 등)를 붙이세요.")
+    if fleet_restart:
+        problems.append("여러 장비에서 동시에 난 이상입니다. 점검 절차(RB-00)대로 개별 장비 재기동·롤백은 권하지 말고 "
+                        "공통 구간 점검 순서만 적으세요.")
     if no_steps:
         problems.append("마지막에 '점검 순서:'를 1. 2. 3. 번호로 적으세요.")
     return {"ok": not problems, "problems": problems, "numbers_checked": len(used), "bad_numbers": bad}
