@@ -203,6 +203,7 @@
       </div>
     </div>
 
+    <div v-if="errorMsg" style="position:fixed; top:52px; left:232px; right:16px; z-index:20; padding:10px 14px; border:1px solid #8a2a31; background:rgba(239,70,82,.12); border-radius:8px; color:#ffb3b8">⚠ {{ errorMsg }}</div>
     <!-- ================= 알람 분석 ================= -->
     <div class="body" v-if="view === 'alarm'">
       <div class="left">
@@ -461,7 +462,8 @@ createApp({
     const blank = () => ({ started: false, alarm: null, tasks: {}, validation: '', vnote: '', facts: [], refs: [], hypothesis: '', live: '', pending: false, actions: [], runId: '', done: false, alarmPoint: null });
     const cur = reactive(blank());
 
-    const label = k => (kpiList.value.find(x => x.kpi === k) || {}).label || k;
+    const arr = v => Array.isArray(v) ? v : [];
+    const label = k => (arr(kpiList.value).find(x => x.kpi === k) || {}).label || k;
     const d = s => (s || '').slice(0, 10).replaceAll('-', '.');
     const dev = (p, k) => p && p.value != null && p.usual ? (isRate(k) ? p.value - p.usual : (p.value / p.usual - 1) * 100) : 0;
     const devText = (p, k) => { const v = dev(p, k); return (v > 0 ? '+' : '') + v.toFixed(isRate(k) ? 2 : 1) + (isRate(k) ? '%p' : '%'); };
@@ -489,15 +491,18 @@ createApp({
       return { cands, steps }; });
 
     /* ---- 데이터 불러오기 ---- */
-    const j = u => fetch(u).then(r => r.json());
+    const errorMsg = ref('');
+    const j = async u => { const r = await fetch(u);
+      if (!r.ok) { errorMsg.value = `분석 서버 응답 오류 (${u.split('?')[0]} → ${r.status}). server.py를 끄고(Ctrl+C) 다시 켠 뒤 새로고침하세요. 화면과 서버 버전이 다를 때 생깁니다.`; throw new Error(u + ' ' + r.status); }
+      return r.json(); };
     async function loadView() {
       if (!sel.kpi) return;
       const [s, p, n] = await Promise.all([j(`/series?device=${sel.device}&kpi=${sel.kpi}&start=${encodeURIComponent(addH(sel.ts, -6))}&end=${encodeURIComponent(addH(sel.ts, 3))}`),
         j(`/series?device=${sel.device}&kpi=${pairKpi(sel.kpi)}&start=${encodeURIComponent(sel.ts)}&end=${encodeURIComponent(sel.ts)}`),
         j(`/snapshot?kpi=${sel.kpi}&ts=${encodeURIComponent(sel.ts)}`)]);
-      series.value = s; pair.value = p; snap.value = n;
+      series.value = s; pair.value = p; snap.value = arr(n);
     }
-    const pairKpi = k => (kpiList.value.find(x => x.kpi === k) || {}).pair || k;
+    const pairKpi = k => (arr(kpiList.value).find(x => x.kpi === k) || {}).pair || k;
     function pickAlarm(a, run) { Object.assign(sel, { device: a.device, kpi: a.kpi, ts: a.ts }); loadView(); if (run) analyze(sel); }
     function pickDevice(devName) { sel.device = devName; loadView(); }
     const isSel = a => a.device === sel.device && a.kpi === sel.kpi && a.ts === sel.ts;
@@ -512,7 +517,7 @@ createApp({
       const first = alarms.value.find(a => a.device === 'MME-A03' && a.kpi === 'pag_sms_succ_rate') || alarms.value[0];
       if (first) pickAlarm(first, false);
     }
-    init();
+    init().catch(e => { console.error(e); if (!errorMsg.value) errorMsg.value = '분석 서버에 연결하지 못했습니다. server.py가 켜져 있는지 확인하세요.'; });
 
     /* ---- 분석 (SSE) ---- */
     function analyze(s) { Object.assign(cur, blank(), { started: true }); chatLog.value = [];
@@ -546,7 +551,7 @@ createApp({
       es.onerror = () => { es.close(); busy.value = false; };
     }
 
-    return { view, meta, online, backendLabel, alarms, kpiList, snap, series, sel, fDev, fKpi, fDir, input, busy, chatLog, metrics, ex, exSeries, cur,
+    return { errorMsg, view, meta, online, backendLabel, alarms, kpiList, snap, series, sel, fDev, fKpi, fDir, input, busy, chatLog, metrics, ex, exSeries, cur,
       label, d, fmt, isRate, dev, devText, change, spark, shownAlarms, selPoint, pairPoint, valueChart, scoreChart, exploreValue, exploreScore,
       reportPoint, otherDeviceQuestion, hyp, pickAlarm, pickDevice, isSel, loadExplore, loadMetrics, analyze, ask, decide };
   },
