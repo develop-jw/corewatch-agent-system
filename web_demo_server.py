@@ -12,6 +12,7 @@ server.py는 평소처럼(fake/ollama/openai 아무 백엔드로나) 8100에 미
 실행:
     python3 web_demo_server.py        # http://localhost:8600 에서 채팅 화면 오픈
 """
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
@@ -26,33 +27,33 @@ app = FastAPI()
 
 
 @app.get("/")
-async def index():
+async def index() -> FileResponse:
     return FileResponse(HERE / "web_chat.html")
 
 
 @app.get("/health")
-async def proxy_health():
+async def proxy_health() -> JSONResponse:
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.get(f"{BACKEND}/health")
     return JSONResponse(r.json(), status_code=r.status_code)
 
 
 @app.get("/meta")
-async def proxy_meta():
+async def proxy_meta() -> JSONResponse:
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.get(f"{BACKEND}/meta")
     return JSONResponse(r.json(), status_code=r.status_code)
 
 
 @app.get("/alarms")
-async def proxy_alarms(request: Request):
+async def proxy_alarms(request: Request) -> JSONResponse:
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.get(f"{BACKEND}/alarms", params=dict(request.query_params))
     return JSONResponse(r.json(), status_code=r.status_code)
 
 
 @app.post("/chat")
-async def proxy_chat(req: Request):
+async def proxy_chat(req: Request) -> JSONResponse:
     body = await req.body()
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(f"{BACKEND}/chat", content=body,
@@ -61,13 +62,35 @@ async def proxy_chat(req: Request):
 
 
 @app.get("/chat/stream")
-async def proxy_stream(message: str, thread_id: str = "web-demo"):
-    async def relay():
+async def proxy_stream(message: str, thread_id: str = "web-demo") -> StreamingResponse:
+    async def relay() -> AsyncIterator[bytes]:
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "GET", f"{BACKEND}/chat/stream",
                 params={"message": message, "thread_id": thread_id},
             ) as upstream:
+                async for chunk in upstream.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(relay(), media_type="text/event-stream")
+
+
+@app.post("/chat/resume")
+async def proxy_resume(req: Request) -> JSONResponse:
+    body = await req.body()
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(f"{BACKEND}/chat/resume", content=body,
+                              headers={"content-type": "application/json"})
+    return JSONResponse(r.json(), status_code=r.status_code)
+
+
+@app.get("/chat/resume/stream")
+async def proxy_resume_stream(run_id: str, approved: bool) -> StreamingResponse:
+    """사람 승인(HITL) — 화면의 [승인]/[보류] 버튼 → 백엔드가 멈춘 분석을 이어서 진행."""
+    async def relay() -> AsyncIterator[bytes]:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", f"{BACKEND}/chat/resume/stream",
+                                     params={"run_id": run_id, "approved": str(approved).lower()}) as upstream:
                 async for chunk in upstream.aiter_bytes():
                     yield chunk
 

@@ -76,7 +76,7 @@ PLAN_INSTRUCTIONS = (
 
 
 class OpenAILLM:
-    def __init__(self, model: str, usd_per_1k_tokens: float):
+    def __init__(self, model: str, usd_per_1k_tokens: float) -> None:
         self.name = f"openai:{model}"
         self.model = model
         self.usd_per_1k = usd_per_1k_tokens

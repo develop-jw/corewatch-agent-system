@@ -88,7 +88,7 @@ PLAN_SCHEMA = {
 
 
 class OllamaLLM:
-    def __init__(self, model: str, usd_per_1k_tokens: float):
+    def __init__(self, model: str, usd_per_1k_tokens: float) -> None:
         self.name = f"ollama:{model}"
         self.model = model
         self.usd_per_1k = usd_per_1k_tokens

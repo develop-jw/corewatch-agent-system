@@ -3,12 +3,13 @@
 asyncio.TimeoutError(일시적)만 재시도하고, 그 외(ValueError 등 영구적)는 즉시 전파한다.
 """
 import asyncio
+from typing import Any
 
 from langsmith import traceable
 
 
 @traceable(name="with_retry")
-async def with_retry(fn, *args, retries: int = 3, base_delay: float = 0.3, **kwargs):
+async def with_retry(fn: Any, *args: Any, retries: int = 3, base_delay: float = 0.3, **kwargs: Any) -> Any:
     attempt = 0
     while True:
         attempt += 1

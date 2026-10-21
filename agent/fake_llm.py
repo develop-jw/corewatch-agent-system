@@ -12,7 +12,7 @@ from .prompts import HYPOTHESIS_SYSTEM, INCIDENT_PATTERN, hypothesis_user
 
 
 class FakeLLM:
-    def __init__(self, name: str, usd_per_1k_tokens: float):
+    def __init__(self, name: str, usd_per_1k_tokens: float) -> None:
         self.name = name
         self.usd_per_1k = usd_per_1k_tokens
 
@@ -144,6 +144,8 @@ class QualityLLM(FakeLLM):
             lines.append("영향 규모는 약 37.5%로 추정됩니다.")
         lines += ["점검 순서:", "1. [R1]의 첫 번째 점검 항목부터 확인", "2. 같은 시각 다른 장비 상태 재확인 [F4]",
                   "3. 짝 지표 변화 추이 관찰 [F5]"]
+        if not common:   # 한 장비 문제일 때만: 위험 조치 → 사람 승인(HITL) 단계로 넘어간다
+            lines.append("4. 원인이 이 장비 내부로 좁혀지면 해당 장비 재기동 검토 (운영자 승인 필요)")
         text = "\n".join(lines)
         if on_token is not None:
             on_token(text)

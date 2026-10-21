@@ -41,7 +41,8 @@ def build_refs(state: AgentState) -> list[dict]:
 
 def render_report(alarm: dict, facts: list[str], refs: list[dict], hypothesis: str) -> str:
     lines = [f"[알람] {alarm['device']} · {alarm['kpi']}({kpi_type(alarm['kpi'])}) · {alarm['ts']}"
-             + (" — 질문에 시각이 없어 가장 강한 알람을 골랐습니다" if alarm.get("found_by") == "가장 강한 알람" else ""),
+             + {"가장 강한 알람": " — 질문에 시각이 없어 가장 강한 알람을 골랐습니다",
+                "이전 질문": " — 앞 질문의 알람을 이어서 분석했습니다"}.get(alarm.get("found_by"), ""),
              "", "■ ① 조회한 사실"]
     lines += [f"[F{i}] {f}" for i, f in enumerate(facts, 1)]
     lines += ["", "■ ② 점검 절차"]

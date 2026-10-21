@@ -21,7 +21,8 @@ NEED_INFO = ("분석할 알람을 찾지 못했습니다. 장비 이름(예: MME
 
 @traceable(name="plan_node")
 async def plan_node(state: AgentState, deps: Any) -> dict:
-    alarm = parse_alarm(state["query"])
+    last = deps.session_store.load_alarm(state.get("thread_id", "default"))   # 이어지는 질문용 직전 알람
+    alarm = parse_alarm(state["query"], last)
     if alarm is None:
         return {"route": "need_info", "final": NEED_INFO,
                 "events": state["events"] + [{"type": "NeedInfo"}]}
@@ -29,6 +30,7 @@ async def plan_node(state: AgentState, deps: Any) -> dict:
     server = await deps.mcp.find_prompt("alarm_analysis_prompt")      # 어느 MCP 서버가 갖고 있는지 먼저 찾는다
     procedure = await deps.mcp.get_prompt("alarm_analysis_prompt",
                                           {"device": alarm.device, "kpi": alarm.kpi, "ts": alarm.ts}, server=server)
+    deps.session_store.save_alarm(state.get("thread_id", "default"), alarm.to_dict())
     tasks = [{"id": f"task-{name}", "agent": "research", "kind": name, "target": label, "status": "pending"}
              for name, label in SUBAGENTS]
     tasks.append({"id": "task-analysis", "agent": "analysis", "kind": "pattern", "status": "pending"})

@@ -70,5 +70,9 @@ async def finalize_node(state: AgentState, deps: Any) -> dict:
     d = state.get("validation_detail", {})
     note = (f"\n\n(자동 검사: 숫자 {d.get('numbers_checked', 0)}개 대조 · 통과)" if d.get("ok")
             else "\n\n(자동 검사 경고: " + " ".join(d.get("problems", [])) + " — 운영자 확인 필요)")
+    ap = state.get("approval", {})
+    if ap.get("required"):
+        note += ("\n(위험 조치: 운영자 승인 완료)" if ap.get("approved")
+                 else f"\n(위험 조치 {len(ap.get('actions', []))}건 보류 — {ap.get('by', '운영자')})")
     return {"final": state["draft"] + note,
             "events": state["events"] + [{"type": "Finalize", "pipeline": "corewatch"}]}

@@ -44,6 +44,13 @@
   .prompt-box summary { cursor: pointer; padding: 7px 12px; color: #8b8bd8; }
   .prompt-box pre { margin: 0; padding: 10px 12px; border-top: 1px solid #3a3a52; background: #11111a; color: #c3c3e0;
                     white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto; }
+  /* ---- 사람 승인(HITL) ---- */
+  .approval { max-width: 80%; border: 1px solid #c9a24a; background: #2f2a1c; border-radius: 12px; padding: 12px 14px; font-size: 13px; }
+  .approval h4 { margin: 0 0 6px; color: #f3cf74; font-size: 13px; }
+  .approval ul { margin: 4px 0 10px; padding-left: 18px; color: #f0e2bd; }
+  .approval .btns { display: flex; gap: 8px; }
+  .approval .ok { background: #2e7d4f; } .approval .hold { background: #7d4a2e; }
+  .approval .done { color: #c9b98a; }
   form { display: flex; gap: 8px; padding: 14px 20px; background: #262638; border-top: 1px solid #3a3a52; }
   input { flex: 1; padding: 11px 14px; border-radius: 10px; border: 1px solid #3a3a52; background: #1e1e2e; color: #e2e2f0; font-size: 14px; }
   button { padding: 11px 20px; border-radius: 10px; border: none; background: #5b5bd6; color: white; font-size: 14px; cursor: pointer; }
@@ -76,13 +83,22 @@
             <div v-for="(step, i) in item.steps" :key="i" class="step">{{ step }}</div>
           </div>
           <div v-else-if="item.kind === 'agent'" class="row agent"><div class="bubble">{{ item.text }}</div></div>
+          <div v-else-if="item.kind === 'approval'" class="approval">
+            <h4>⚠ 운영자 승인 필요 — 되돌리기 어려운 조치가 포함되어 있습니다</h4>
+            <ul><li v-for="(a, i) in item.actions" :key="i">{{ a }}</li></ul>
+            <div v-if="!item.decided" class="btns">
+              <button class="ok" @click="decide(item, true)">승인</button>
+              <button class="hold" @click="decide(item, false)">보류</button>
+            </div>
+            <div v-else class="done">{{ item.decided }}</div>
+          </div>
           <details v-else-if="item.kind === 'prompt'" class="prompt-box">
             <summary>AI에 전달된 지시문 보기</summary><pre>{{ item.text }}</pre>
           </details>
         </template>
       </div>
       <form @submit.prevent="onSubmit">
-        <input v-model="input" autocomplete="off" placeholder="예: MME-A03 pag_sms_succ_rate 2026-10-16 08:00 알람 원인 분석해줘" />
+        <input v-model="input" autocomplete="off" placeholder="예: MME-A03 pag_sms_succ_rate 2026-10-16 08:00 알람 원인 분석해줘 · 이어서: 그 장비 짝 지표는?" />
         <button type="submit" :disabled="sending">보내기</button>
       </form>
     </section>
@@ -102,6 +118,7 @@ const STEP_LABELS = {
   AnalysisCompleted: e => `판단 유형: ${e.patterns.join(', ') || '없음'}`,
   DraftWritten: e => `리포트 작성 (시도 ${e.attempt})`,
   Validation: e => e.verdict === '불합격' ? `수치 검사 반려 → 다시 작성 (${e.problems.join(' ')})` : `수치 검사 통과 (숫자 ${e.numbers_checked}개 대조)`,
+  ApprovalDecided: e => e.approved ? '운영자 승인 → 리포트 확정' : `위험 조치 보류 (${e.by}) → 리포트 확정`,
   Finalize: () => '리포트 완성',
 };
 
@@ -146,12 +163,23 @@ createApp({
     function send(text) {
       if (sending.value) return;
       log.value.push({ id: nextId++, kind: 'user', text });
+      openStream(`/chat/stream?message=${encodeURIComponent(text)}&thread_id=${encodeURIComponent(thread)}`);
+    }
+
+    /* ---- 사람 승인(HITL): 버튼을 누르면 멈춰 있던 분석을 이어서 진행 ---- */
+    function decide(item, approved) {
+      if (sending.value) return;
+      item.decided = approved ? '승인함 — 리포트를 확정합니다' : '보류함 — 해당 조치를 보류로 표시합니다';
+      openStream(`/chat/resume/stream?run_id=${encodeURIComponent(item.runId)}&approved=${approved}`);
+    }
+
+    function openStream(url) {
       sending.value = true;
       const stepsItem = reactive({ id: nextId++, kind: 'steps', steps: [] });
       log.value.push(stepsItem);
       scrollToBottom();
 
-      const es = new EventSource(`/chat/stream?message=${encodeURIComponent(text)}&thread_id=${encodeURIComponent(thread)}`);
+      const es = new EventSource(url);
       let streamItem = null, streamAttempt = null;
       es.onmessage = (event) => {
         if (event.data === '[DONE]') { es.close(); sending.value = false; return; }
@@ -162,6 +190,13 @@ createApp({
             log.value.push(streamItem); streamAttempt = e.attempt;
           }
           streamItem.text += e.delta; scrollToBottom(); return;
+        }
+        if (e.type === 'ApprovalRequired') {
+          if (!streamItem) { streamItem = reactive({ id: nextId++, kind: 'agent', text: '' }); log.value.push(streamItem); }
+          streamItem.text = e.draft + '\n\n(운영자 승인 대기 중)';
+          stepsItem.steps.push('위험 조치 발견 → 운영자 승인 대기');
+          log.value.push(reactive({ id: nextId++, kind: 'approval', actions: e.actions, runId: e.run_id, decided: '' }));
+          streamItem = null; scrollToBottom(); return;
         }
         if (e.type === 'FinalAnswer') {
           if (!streamItem) { streamItem = reactive({ id: nextId++, kind: 'agent', text: '' }); log.value.push(streamItem); }
@@ -175,7 +210,7 @@ createApp({
       es.onerror = () => { es.close(); sending.value = false; };
     }
 
-    return { backendLabel, dataMode, alarms, selected, log, input, sending, logEl, onSubmit, analyze };
+    return { backendLabel, dataMode, alarms, selected, log, input, sending, logEl, onSubmit, analyze, decide };
   },
 }).mount('#app');
 </script>

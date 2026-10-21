@@ -24,6 +24,7 @@ class AgentState(TypedDict, total=False):
     validation_attempts: int
     validation_feedback: str | None
     validation_detail: dict
+    approval: dict                # 사람 승인 {"required", "approved", "actions", "by"}
     final: str
     last_prompt: str
     cost_usd: float

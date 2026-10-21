@@ -17,6 +17,7 @@ import os
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
+from typing import Any
 
 from langsmith import traceable
 from mcp import ClientSession, StdioServerParameters
@@ -29,7 +30,7 @@ DEFAULT_SERVER_SCRIPTS = {
 }
 
 
-def _attr(obj, *names):
+def _attr(obj: Any, *names: str) -> Any:
     """mcp SDK 버전에 따라 pydantic 필드명이 camelCase(예: resourceTemplates,
     uriTemplate, 구버전 1.x)와 snake_case(예: resource_templates, uri_template,
     신버전 2.x)로 갈린다 — 이 프로젝트 안에도 시스템 python3(mcp 1.28.1, camelCase)와
