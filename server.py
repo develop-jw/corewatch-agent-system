@@ -112,7 +112,9 @@ async def meta() -> dict:
     t = mme_data.load_table()
     return {"data_mode": app.state.data_mode, "start": str(t["ts"].min()), "end": str(t["ts"].max()),
             "alarm_from": str(mme_detect.valid_end() + pd.Timedelta(hours=1)),
-            "devices": mme_data.list_devices(), "model": mme_detect.MODEL_VERSION}
+            "devices": mme_data.list_devices(), "model": mme_detect.MODEL_VERSION,
+            "kpi_count": len(mme_data.list_kpis()), "procedure_count": len(mme_data.list_kpis()) // 2,   # 시도·성공률 짝 수
+            "alarm_total": int(len(mme_detect.list_alarms(str(mme_detect.valid_end() + pd.Timedelta(hours=1)))))}
 
 
 @app.get("/alarms")
@@ -120,9 +122,56 @@ async def alarms(start: str | None = None, end: str | None = None, limit: int = 
     """알람 목록 (점수 높은 순). 화면의 알람 패널이 쓴다."""
     from mme import detect as mme_detect
     rows = mme_detect.list_alarms(start, end).sort_values("score", ascending=False).head(limit)
-    return [{"device": r.device, "kpi": r.kpi, "ts": r.ts.strftime("%Y-%m-%d %H:00"),
+    from mme import data as mme_data
+    return [{"device": r.device, "kpi": r.kpi, "label": mme_data.kpi_label(r.kpi), "ts": r.ts.strftime("%Y-%m-%d %H:00"),
              "value": round(float(r.value), 2), "usual": round(float(r.usual), 2),
              "direction": r.direction, "score": round(float(r.score), 3)} for r in rows.itertuples()]
+
+
+def _num(x: float, nd: int = 3) -> float | None:
+    """NaN(값 없음)은 None으로 — JSON에서 null이 된다."""
+    return None if pd.isna(x) else round(float(x), nd)
+
+
+@app.get("/kpis")
+async def kpis() -> list[dict]:
+    """KPI 목록과 화면용 이름 (예: pag_sms_succ_rate → 문자 호출 성공률)."""
+    from mme import data as mme_data
+    return [{"kpi": k, "label": mme_data.kpi_label(k), "type": mme_data.kpi_type(k), "pair": mme_data.pair_of(k)}
+            for k in mme_data.list_kpis()]
+
+
+@app.get("/series")
+async def series(device: str, kpi: str, start: str | None = None, end: str | None = None) -> dict:
+    """장비·KPI 하나의 시간별 관측값 · 평소값 · 이상 점수 (관제 화면의 추이 그래프용)."""
+    from mme import data as mme_data
+    from mme import detect as mme_detect
+    rows = mme_detect.get_scores(device, kpi, start, end)
+    thr = float(mme_detect.score_table()["threshold"].iloc[0])
+    return {"device": device, "kpi": kpi, "label": mme_data.kpi_label(kpi), "type": mme_data.kpi_type(kpi),
+            "pair": mme_data.pair_of(kpi), "threshold": round(thr, 3),
+            "points": [{"ts": r.ts.strftime("%Y-%m-%d %H:00"), "value": _num(r.value, 2), "usual": _num(r.usual, 2),
+                        "score": _num(r.score), "is_alarm": bool(r.is_alarm)} for r in rows.itertuples()]}
+
+
+@app.get("/snapshot")
+async def snapshot(kpi: str, ts: str, hours: int = 10) -> list[dict]:
+    """같은 시각 · 같은 KPI의 장비별 값과 알람 여부, 직전 hours시간 추이 (장비별 비교 패널용)."""
+    from mme import data as mme_data
+    from mme import detect as mme_detect
+    t = mme_detect.score_table()
+    at = pd.Timestamp(ts)
+    rows = t[(t["kpi"] == kpi) & (t["ts"] > at - pd.Timedelta(hours=hours)) & (t["ts"] <= at)]
+    out = []
+    for dev in mme_data.list_devices():
+        r = rows[rows["device"] == dev].sort_values("ts")
+        cur = r[r["ts"] == at]
+        if cur.empty:
+            continue
+        c = cur.iloc[0]
+        out.append({"device": dev, "value": _num(c["value"], 2), "usual": _num(c["usual"], 2), "score": _num(c["score"]),
+                    "is_alarm": bool(c["is_alarm"]), "spark": [_num(v, 2) for v in r["value"]]})
+    return out
 
 
 @app.get("/metrics")
@@ -260,6 +309,16 @@ async def chat_resume_stream(run_id: str, approved: bool) -> StreamingResponse:
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+def _report_event(v: dict, pending: bool = False) -> dict:
+    """관제 화면 오른쪽 'AI 알람 분석' 패널이 구역별로 그리도록, 리포트를 구조화해서 보낸다."""
+    d = v.get("validation_detail", {})
+    return {"type": "Report", "pending_approval": pending, "alarm": v.get("alarm"), "facts": v.get("facts", []),
+            "refs": v.get("refs", []), "hypothesis": v.get("hypothesis", ""), "patterns": v.get("analysis", {}).get("patterns", []),
+            "validation": {"ok": d.get("ok"), "attempts": v.get("validation_attempts", 0), "numbers_checked": d.get("numbers_checked", 0),
+                           "problems": d.get("problems", [])},
+            "approval": v.get("approval", {}), "cost_usd": v.get("cost_usd", 0.0)}
+
+
 async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: str,
                         thread_id: str, pending_elapsed: float = 0.0) -> AsyncIterator[str]:
     """그래프를 실행하며 SSE 문자열을 내보낸다.
@@ -280,6 +339,8 @@ async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: st
                 app.state.metrics.approval_requested += 1
                 ev = {"type": "ApprovalRequired", "run_id": run_id, "actions": req["actions"], "draft": req["draft"]}
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                snap = await app.state.graph.aget_state(_config(run_id))
+                yield f"data: {json.dumps(_report_event(snap.values, pending=True), ensure_ascii=False)}\n\n"
                 return
             delta = delta or {}
             for ev in (delta.get("events") or [])[seen:]:
@@ -294,6 +355,8 @@ async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: st
     values = snap.values if snap else {}
     last_prompt = last_prompt or values.get("last_prompt")
     app.state.metrics.record(values or {"route": "unknown"}, time.perf_counter() - t0 + pending_elapsed)
+    if values.get("route") == "incident" and values.get("facts"):
+        yield f"data: {json.dumps(_report_event(values), ensure_ascii=False)}\n\n"
     yield f"data: {json.dumps({'type': 'FinalAnswer', 'reply': final, 'prompt': last_prompt}, ensure_ascii=False)}\n\n"
     deps.session_store.append(thread_id, "user", message)
     deps.session_store.append(thread_id, "assistant", final)

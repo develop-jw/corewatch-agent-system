@@ -52,6 +52,28 @@ def kpi_type(kpi: str) -> str:
     return "성공률" if "succ_rate" in kpi else "시도"
 
 
+PROCEDURE_LABELS = {
+    "comb_atch": "결합 접속", "comb_tau": "결합 위치 등록", "prd_tau": "주기적 위치 등록", "ddn": "데이터 도착 알림",
+    "net_dtch": "망 측 접속 해제", "ue_dtch": "단말 접속 해제", "pag_data": "데이터 호출", "pag_hdv": "음성(HD Voice) 호출",
+    "pag_sms": "문자 호출", "pag_video": "영상 호출", "srmo": "발신 서비스 요청", "srmt": "착신 서비스 요청",
+}
+
+
+def procedure_of(kpi: str) -> str:
+    """KPI 이름에서 절차 부분만. 예) pag_sms_succ_rate → pag_sms, comb_atch_att_45005 → comb_atch"""
+    return kpi.replace("_succ_rate", "").replace("_att", "").replace("_45005", "").replace("_etc", "")
+
+
+def kpi_label(kpi: str) -> str:
+    """화면에 보여 줄 한국어 이름. 예) pag_sms_succ_rate → 문자 호출 성공률"""
+    name = PROCEDURE_LABELS.get(procedure_of(kpi), procedure_of(kpi))
+    if kpi.endswith("_45005"):
+        name += "(45005)"
+    elif kpi.endswith("_etc"):
+        name += "(기타)"
+    return f"{name} {kpi_type(kpi)}"
+
+
 def pair_of(kpi: str) -> str:
     """같은 절차의 짝 KPI. 예) pag_sms_att ↔ pag_sms_succ_rate"""
     if "succ_rate" in kpi:

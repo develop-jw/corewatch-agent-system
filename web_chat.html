@@ -2,235 +2,553 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>CoreWatch — MME 알람 분석</title>
 <style>
-  /* ---- 기본 ---- */
-  :root { color-scheme: dark; }
+  /* ---- 색 · 기본 ---- */
+  :root {
+    color-scheme: dark;
+    --bg: #0c1222; --side: #0f1628; --panel: #131a2d; --panel2: #18203a; --line: #232c48; --line2: #2d3758;
+    --text: #e7eaf3; --muted: #8b93ad; --dim: #646c87;
+    --red: #ef4652; --red-bg: rgba(239,70,82,.12); --cyan: #39c6e6; --green: #34d399; --amber: #f5a524; --indigo: #7480f5;
+  }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
-  body { margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden;
-         font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background: #1e1e2e; color: #e2e2f0; }
-  #app { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  header { padding: 14px 20px; background: #262638; border-bottom: 1px solid #3a3a52; font-weight: 600; font-size: 15px; }
-  header span { color: #8b8bd8; font-weight: 400; font-size: 13px; margin-left: 8px; }
-  .mode { float: right; font-size: 12px; padding: 3px 10px; border-radius: 10px; background: #2f4f3a; color: #9ee6b0; }
-  .mode.original { background: #5a3a2a; color: #f6c08b; }
-  main { flex: 1; min-height: 0; display: flex; }
+  body { margin: 0; overflow: hidden; background: var(--bg); color: var(--text);
+         font-family: "Pretendard", -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; font-size: 13px; }
+  button { font-family: inherit; }
+  #app { height: 100vh; display: grid; grid-template-columns: 216px 1fr; }
+  .num { font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .red { color: var(--red); } .green { color: var(--green); } .amber { color: var(--amber); }
 
-  /* ---- 알람 목록 ---- */
-  aside { width: 340px; border-right: 1px solid #3a3a52; display: flex; flex-direction: column; min-height: 0; }
-  aside h3 { margin: 0; padding: 12px 16px; font-size: 13px; color: #9a9ac0; border-bottom: 1px solid #3a3a52; }
-  #alarms { flex: 1; overflow-y: auto; }
-  .alarm { padding: 10px 16px; border-bottom: 1px solid #2c2c40; cursor: pointer; font-size: 13px; }
-  .alarm:hover { background: #2a2a3e; }
-  .alarm.active { background: #34345a; }
-  .alarm .top { display: flex; justify-content: space-between; }
-  .alarm .dev { font-weight: 600; }
-  .alarm .kpi { color: #c3c3e0; margin-top: 2px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-  .alarm .val { color: #9a9ac0; margin-top: 2px; font-size: 12px; }
-  .down { color: #ff8a8a; } .up { color: #ffcf6e; }
+  /* ---- 사이드바 ---- */
+  .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 22px; }
+  .brand b { font-size: 20px; letter-spacing: -.3px; display: block; }
+  .brand small { color: var(--muted); font-size: 11.5px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+  .nav a { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 8px; color: #c4c9da; cursor: pointer; font-size: 14.5px; }
+  .nav a:hover { background: #172038; }
+  .nav a.on { background: linear-gradient(90deg, rgba(239,70,82,.22), rgba(239,70,82,.06)); color: #fff; font-weight: 600; box-shadow: inset 3px 0 0 var(--red); }
+  .side .foot { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-top: 1px solid var(--line); }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: #2a3354; display: grid; place-items: center; color: #aab3d1; }
+  .side .foot b { display: block; font-size: 13px; } .side .foot small { color: var(--muted); font-size: 11px; }
 
-  /* ---- 운영 지표 ---- */
-  #metrics { border-top: 1px solid #3a3a52; padding: 10px 16px 12px; font-size: 12px; color: #9a9ac0; background: #222234; }
-  #metrics h4 { margin: 0 0 6px; font-size: 12px; color: #c3c3e0; }
-  #metrics .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
-  #metrics b { color: #e2e2f0; font-weight: 600; }
+  /* ---- 상단 바 ---- */
+  .main { display: grid; grid-template-rows: 44px 1fr; min-width: 0; min-height: 0; }
+  .top { display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--side); }
+  .crumb { color: var(--muted); font-size: 13.5px; } .crumb b { color: var(--text); font-weight: 500; }
+  .top .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .chip { padding: 4px 10px; border-radius: 6px; background: #1b2440; border: 1px solid var(--line2); font-size: 12px; color: #cfd4e6; }
+  .live { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #cfd4e6; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); box-shadow: none; }
 
-  /* ---- 대화 ---- */
-  section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-  .row { display: flex; }
-  .row.user { justify-content: flex-end; }
-  .bubble { max-width: 80%; padding: 10px 14px; border-radius: 14px; line-height: 1.55; font-size: 14px; white-space: pre-wrap; }
-  .row.user .bubble { background: #5b5bd6; color: white; border-bottom-right-radius: 4px; }
-  .row.agent .bubble { background: #2e2e42; border-bottom-left-radius: 4px; }
-  .steps { max-width: 80%; font-size: 12px; color: #9a9ac0; padding: 6px 14px; display: flex; flex-direction: column; gap: 3px; }
-  .steps .step::before { content: "✓ "; color: #7ee787; }
-  .prompt-box { flex-shrink: 0; max-width: 80%; background: #17171f; border: 1px solid #3a3a52; border-radius: 10px; font-size: 12px; overflow: hidden; }
-  .prompt-box summary { cursor: pointer; padding: 7px 12px; color: #8b8bd8; }
-  .prompt-box pre { margin: 0; padding: 10px 12px; border-top: 1px solid #3a3a52; background: #11111a; color: #c3c3e0;
-                    white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto; }
-  /* ---- 사람 승인(HITL) ---- */
-  .approval { max-width: 80%; border: 1px solid #c9a24a; background: #2f2a1c; border-radius: 12px; padding: 12px 14px; font-size: 13px; }
-  .approval h4 { margin: 0 0 6px; color: #f3cf74; font-size: 13px; }
-  .approval ul { margin: 4px 0 10px; padding-left: 18px; color: #f0e2bd; }
+  /* ---- 본문 그리드 ---- */
+  .body { display: grid; grid-template-columns: minmax(0, 1fr) 470px; gap: 14px; padding: 14px 16px 10px; min-height: 0; }
+  .left { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 12px; min-height: 0; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .hd { display: flex; align-items: center; gap: 10px; }
+  .hd h1 { margin: 0; font-size: 26px; letter-spacing: -.5px; }
+  .hd p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+  .period { margin-left: auto; display: flex; align-items: center; gap: 10px; padding: 9px 14px; border: 1px solid var(--line2); border-radius: 8px; background: var(--panel); font-size: 13px; }
+  .period .sep { width: 1px; height: 16px; background: var(--line2); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .stat { display: flex; gap: 14px; align-items: center; padding: 13px 16px; }
+  .stat .ic { width: 40px; height: 40px; border-radius: 9px; background: #1d2747; display: grid; place-items: center; color: #9fb0ff; flex: none; }
+  .stat small { color: var(--muted); font-size: 12px; display: block; }
+  .stat b { font-size: 22px; display: block; margin: 1px 0; }
+  .stat em { font-style: normal; color: var(--dim); font-size: 11.5px; }
+
+  .mid { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 12px; min-height: 0; }
+  .ph { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+  .ph h3 { margin: 0; font-size: 15px; }
+  .sel { margin-left: auto; padding: 5px 10px; border: 1px solid var(--line2); border-radius: 6px; background: #10172a; font-size: 12px; color: #cfd4e6; }
+  select.sel { appearance: none; padding-right: 22px; background-image: linear-gradient(45deg, transparent 50%, #8b93ad 50%), linear-gradient(135deg, #8b93ad 50%, transparent 50%);
+               background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
+
+  /* ---- 장비별 비교 ---- */
+  .cmp { display: flex; flex-direction: column; min-height: 0; }
+  .cmp .sub { display: flex; align-items: center; gap: 6px; padding: 0 14px 8px; color: var(--muted); font-size: 12.5px; }
+  .grid9 { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 8px; padding: 0 12px 12px; overflow: auto; }
+  .dev { display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--line2); border-radius: 8px; padding: 8px 10px 6px; background: #121a30; cursor: pointer; }
+  .dev:hover { border-color: #3a4670; }
+  .dev.on { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; background: rgba(239,70,82,.07); }
+  .dev .n { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; }
+  .dev .n i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .dev .n i.a { background: var(--red); }
+  .dev .v { font-size: 17px; font-weight: 700; margin: 3px 0 0; }
+  .dev .row { display: flex; align-items: flex-end; justify-content: space-between; }
+  .dev .tag { font-size: 11.5px; font-weight: 700; color: var(--red); white-space: nowrap; }
+  .dev .tag.ok { color: var(--green); font-weight: 500; }
+
+  /* ---- 추이 그래프 ---- */
+  .chart { display: flex; flex-direction: column; min-height: 0; padding-bottom: 10px; }
+  .legend { margin-left: auto; display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .lg-o { width: 9px; height: 9px; border-radius: 50%; background: var(--cyan); }
+  .lg-u { width: 14px; border-top: 2px dashed #c9cfe3; }
+  .lg-s { width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+  .kcode { padding: 0 14px; margin-top: -4px; color: var(--muted); font-size: 12px; }
+  .glabel { display: flex; justify-content: space-between; padding: 8px 14px 0; font-size: 12.5px; color: #cfd4e6; }
+  svg text { font-family: inherit; }
+  .chart svg { display: block; width: 100%; }
+  .pairbox { display: grid; grid-template-columns: 1fr 1px 1fr; gap: 14px; margin: 8px 12px 0; padding: 10px 14px; border: 1px solid var(--line2); border-radius: 8px; background: #10172a; }
+  .pairbox small { color: var(--muted); font-size: 12px; } .pairbox b { font-size: 19px; margin-right: 8px; }
+  .pairbox .vline { background: var(--line2); }
+
+  /* ---- 알람 표 ---- */
+  .tbl { display: flex; flex-direction: column; max-height: 210px; }
+  .tbl .ph .sel { margin-left: 0; min-width: 130px; }
+  .tbl .ph .filters { margin-left: auto; display: flex; gap: 8px; }
+  .tbl table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .tbl .scroll { overflow: auto; }
+  .tbl th { position: sticky; top: 0; background: #151d33; color: var(--muted); font-weight: 500; text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  .tbl td { padding: 5px 12px; border-bottom: 1px solid #1b233c; white-space: nowrap; }
+  .tbl tr.r { cursor: pointer; } .tbl tr.r:hover td { background: #172038; }
+  .tbl tr.on td { background: rgba(239,70,82,.22); }
+  .tbl .rt { text-align: right; }
+  .note { font-size: 11.5px; color: var(--dim); padding: 4px 2px 0; }
+
+  /* ---- AI 분석 패널 ---- */
+  .ai { display: flex; flex-direction: column; min-height: 0; padding: 14px 14px 10px; }
+  .ai .t { display: flex; align-items: flex-start; gap: 10px; }
+  .ai h2 { margin: 0; font-size: 19px; }
+  .ai .alarm { margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .ai .alarm b { color: var(--text); font-size: 19px; margin-right: 6px; }
+  .btn { padding: 8px 14px; border-radius: 7px; border: none; background: var(--red); color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .btn:disabled { background: #3a2730; color: #a77; cursor: default; }
+  .btn.ghost { background: #1b2440; border: 1px solid var(--line2); color: #cfd4e6; font-weight: 500; }
+  .steps { margin-top: 12px; border: 1px solid var(--line2); border-radius: 8px; padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; background: #121a30; }
+  .st { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+  .st.done { color: var(--text); }
+  .ck { width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--dim); font-size: 11px; }
+  .st.done .ck { background: var(--green); border-color: var(--green); color: #0c1222; font-weight: 800; }
+  .st.run .ck { border-color: var(--amber); border-top-color: transparent; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .arrow { color: var(--dim); }
+  .steps2 { margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #1f4d3c; background: rgba(52,211,153,.07); border-radius: 8px; }
+  .steps2 > div { padding: 8px 12px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 13px; }
+  .steps2 > div + div { border-left: 1px solid #1f4d3c; }
+  .steps2.warn { border-color: #5a4318; background: rgba(245,165,36,.08); } .steps2.warn > div + div { border-left-color: #5a4318; }
+  .ai .scroll { flex: 1; min-height: 0; overflow: auto; margin-top: 10px; padding-right: 2px; }
+  .sec { border: 1px solid var(--line2); border-radius: 9px; margin-bottom: 10px; background: #121a30; }
+  .sec .sh { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .sec .no { font-weight: 700; color: #aab3d1; width: 26px; }
+  .sec .sh h4 { margin: 0; font-size: 15px; }
+  .sec .sh .r { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 12px 4px; }
+  .tile { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; background: #10172a; }
+  .tile small { color: var(--muted); font-size: 11.5px; } .tile b { display: block; font-size: 20px; }
+  .facts { padding: 6px 12px 10px; display: flex; flex-direction: column; gap: 3px; }
+  .fact { display: flex; gap: 8px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 6px; background: #10172a; font-size: 12.5px; line-height: 1.45; }
+  .fact .id { color: #aab3d1; flex: none; width: 30px; }
+  .ref { cursor: pointer; } .ref .steps-txt { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: pre-wrap; }
+  .badge { margin-left: auto; padding: 3px 10px; border-radius: 6px; border: 1px solid #8a5b16; background: rgba(245,165,36,.12); color: var(--amber); font-size: 12px; font-weight: 600; }
+  .hyp { padding: 10px 12px; font-size: 13px; line-height: 1.6; }
+  .hyp .cand { margin: 0 0 2px; }
+  .hyp ol { margin: 6px 0 0; padding: 7px 12px 7px 30px; border: 1px solid var(--line); border-radius: 6px; background: #10172a; }
+  .hyp li.hold { color: var(--amber); }
+  .hyp .live { color: var(--muted); white-space: pre-wrap; }
+  .vnote { margin: 0 12px 10px; font-size: 11.5px; color: var(--muted); }
+  .approval { margin: 0 12px 12px; padding: 10px 12px; border: 1px solid #8a5b16; background: rgba(245,165,36,.09); border-radius: 8px; font-size: 12.5px; }
+  .approval b { color: var(--amber); }
+  .approval ul { margin: 6px 0 8px; padding-left: 18px; }
   .approval .btns { display: flex; gap: 8px; }
-  .approval .ok { background: #2e7d4f; } .approval .hold { background: #7d4a2e; }
-  .approval .done { color: #c9b98a; }
-  form { display: flex; gap: 8px; padding: 14px 20px; background: #262638; border-top: 1px solid #3a3a52; }
-  input { flex: 1; padding: 11px 14px; border-radius: 10px; border: 1px solid #3a3a52; background: #1e1e2e; color: #e2e2f0; font-size: 14px; }
-  button { padding: 11px 20px; border-radius: 10px; border: none; background: #5b5bd6; color: white; font-size: 14px; cursor: pointer; }
-  button:disabled { background: #3a3a52; cursor: default; }
+  .approval .ok { background: var(--green); color: #0c1222; } .approval .hold { background: #5b4320; }
+  .chat { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .msg { padding: 7px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+  .msg.q { align-self: flex-end; background: #2b3460; } .msg.a { background: #1a223b; border: 1px solid var(--line); }
+  .follow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .follow button { display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 7px; border: 1px solid var(--line2); background: #121a30; color: #cfd4e6; font-size: 12.5px; cursor: pointer; }
+  .ask { display: flex; gap: 8px; margin-top: 8px; }
+  .ask input { flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line2); background: #10172a; color: var(--text); font-size: 13px; }
+  .ask .btn { width: 42px; justify-content: center; }
+  .empty { padding: 40px 10px; text-align: center; color: var(--muted); line-height: 1.7; }
+  .foot2 { text-align: right; font-size: 11px; color: var(--dim); margin-top: 6px; }
+
+  /* ---- 다른 화면 (KPI 탐색 · 에이전트 운영) ---- */
+  .page { padding: 16px; overflow: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+  .mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .mcard { padding: 14px 16px; } .mcard small { color: var(--muted); } .mcard b { display: block; font-size: 26px; margin-top: 4px; }
+  .kv { width: 100%; border-collapse: collapse; } .kv td { padding: 8px 14px; border-bottom: 1px solid var(--line); } .kv td:first-child { color: var(--muted); width: 220px; }
 </style>
 </head>
 <body>
 <div id="app">
-  <header>CoreWatch — MME 알람 분석 에이전트 <span>{{ backendLabel }}</span>
-    <span class="mode" :class="{ original: dataMode === 'original' }">{{ dataMode === 'original' ? '실제 데이터 (로컬 전용)' : '합성 데이터' }}</span>
-  </header>
-  <main>
-    <aside>
-      <h3>알람 목록 (이상 점수 높은 순) · 눌러서 분석</h3>
-      <div id="alarms">
-        <div v-for="a in alarms" :key="a.device + a.kpi + a.ts" class="alarm" :class="{ active: a === selected }"
-             @click="analyze(a)">
-          <div class="top"><span class="dev">{{ a.device }}</span><span>{{ a.ts }}</span></div>
-          <div class="kpi">{{ a.kpi }}</div>
-          <div class="val"><span :class="a.direction === '급감' ? 'down' : 'up'">{{ a.direction }}</span>
-            · 값 {{ a.value }} (평소 {{ a.usual }}) · 점수 {{ a.score }}</div>
-        </div>
+  <!-- ---- 사이드바 ---- -->
+  <aside class="side">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="17" r="14" fill="none" stroke="#ef4652" stroke-width="3"/><circle cx="17" cy="17" r="8" fill="none" stroke="#f5a524" stroke-width="2.5"/><circle cx="17" cy="17" r="3" fill="#ef4652"/><path d="M17 3 A14 14 0 0 1 31 17" stroke="#0f1628" stroke-width="4" fill="none"/></svg>
+      <div><b>CoreWatch</b><small>MME 코어망 관제 · 분석</small></div>
+    </div>
+    <nav class="nav">
+      <a :class="{ on: view === 'alarm' }" @click="view = 'alarm'"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>알람 분석</a>
+      <a :class="{ on: view === 'kpi' }" @click="view = 'kpi'; loadExplore()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M8 17V9M13 17V5M18 17v-6"/></svg>KPI 탐색</a>
+      <a :class="{ on: view === 'ops' }" @click="view = 'ops'; loadMetrics()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>에이전트 운영</a>
+    </nav>
+    <div class="foot"><div class="avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></div>
+      <div><b>코어망 운영자</b><small>Core Network Ops</small></div></div>
+  </aside>
+
+  <div class="main">
+    <!-- ---- 상단 바 ---- -->
+    <div class="top">
+      <div class="crumb">CoreWatch &nbsp;/&nbsp; <b>{{ {alarm: 'MME 알람 분석', kpi: 'KPI 탐색', ops: '에이전트 운영'}[view] }}</b></div>
+      <div class="right">
+        <span class="chip">{{ meta.data_mode === 'original' ? '실제 데이터 (로컬 전용)' : '합성 데이터' }}</span>
+        <span class="chip">{{ backendLabel }}</span>
+        <span class="live"><i class="dot" :class="{ off: !online }"></i>{{ online ? '분석 서버 연결' : '분석 서버 끊김' }}</span>
       </div>
-      <div id="metrics" v-if="metrics">
-        <h4>운영 지표 (서버 시작 이후)</h4>
-        <div class="grid">
-          <span>분석 요청 <b>{{ metrics.requests }}</b>건</span>
-          <span>평균 응답 <b>{{ metrics.latency_sec.avg ?? '-' }}</b>초</span>
-          <span>1차 검사 통과 <b>{{ metrics.validation.first_pass_rate == null ? '-' : Math.round(metrics.validation.first_pass_rate * 100) + '%' }}</b></span>
-          <span>승인 <b>{{ metrics.approval.approved }}</b> · 보류 <b>{{ metrics.approval.held }}</b></span>
-          <span>조사 실패 <b>{{ metrics.subagent_failures }}</b>건</span>
-          <span>AI 비용 <b>${{ metrics.cost_usd.toFixed(4) }}</b></span>
-        </div>
-      </div>
-    </aside>
-    <section>
-      <div id="log" ref="logEl">
-        <template v-for="item in log" :key="item.id">
-          <div v-if="item.kind === 'user'" class="row user"><div class="bubble">{{ item.text }}</div></div>
-          <div v-else-if="item.kind === 'steps'" class="steps">
-            <div v-for="(step, i) in item.steps" :key="i" class="step">{{ step }}</div>
+    </div>
+
+    <!-- ================= 알람 분석 ================= -->
+    <div class="body" v-if="view === 'alarm'">
+      <div class="left">
+        <div class="hd">
+          <div><h1>MME 알람 분석</h1><p>시간별 KPI와 근거로 확인하는 이상 징후</p></div>
+          <div class="period num">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b93ad" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span class="muted">데이터</span> {{ d(meta.start) }} – {{ d(meta.end).slice(5) }} · 1시간 단위
+            <span class="sep"></span><span class="muted">분석 기간</span> {{ d(meta.alarm_from) }} – {{ d(meta.end).slice(5) }}
           </div>
-          <div v-else-if="item.kind === 'agent'" class="row agent"><div class="bubble">{{ item.text }}</div></div>
-          <div v-else-if="item.kind === 'approval'" class="approval">
-            <h4>⚠ 운영자 승인 필요 — 되돌리기 어려운 조치가 포함되어 있습니다</h4>
-            <ul><li v-for="(a, i) in item.actions" :key="i">{{ a }}</li></ul>
-            <div v-if="!item.decided" class="btns">
-              <button class="ok" @click="decide(item, true)">승인</button>
-              <button class="hold" @click="decide(item, false)">보류</button>
+        </div>
+
+        <div class="stats">
+          <div class="card stat"><div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg></div>
+            <div><small>장비</small><b>{{ (meta.devices || []).length }}대</b><em>MME 코어망</em></div></div>
+          <div class="card stat"><div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 20V10M12 20V4M18 20v-7"/></svg></div>
+            <div><small>KPI</small><b>{{ meta.kpi_count }}종</b><em>{{ meta.procedure_count }}개 절차 · 시도 / 성공률</em></div></div>
+          <div class="card stat"><div class="ic" style="color:#ff8a92"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+            <div><small>조회 알람</small><b>{{ alarms.length }}건</b><em>점수 상위 · 전체 {{ meta.alarm_total }}건</em></div></div>
+          <div class="card stat"><div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M11 7.2 6 16.8M13 7.2l5 9.6M7.5 19h9"/></svg></div>
+            <div><small>탐지 모델</small><b style="font-size:17px; white-space:nowrap">Isolation Forest</b><em>{{ meta.model }}</em></div></div>
+        </div>
+
+        <div class="mid">
+          <!-- ---- 동일 시각 · 장비별 비교 ---- -->
+          <div class="card cmp">
+            <div class="ph"><h3>동일 시각 · 장비별 비교</h3><span class="sel num">{{ sel.ts }}</span></div>
+            <div class="sub">선택 KPI 기준 · 알람 <b class="red">{{ snap.filter(x => x.is_alarm).length }}</b> / {{ snap.length }}대
+              <span class="sel" style="margin-left:auto">{{ label(sel.kpi) }}</span></div>
+            <div class="grid9">
+              <div v-for="x in snap" :key="x.device" class="dev" :class="{ on: x.device === sel.device }" @click="pickDevice(x.device)">
+                <div class="n"><i :class="{ a: x.is_alarm }"></i>{{ x.device }}</div>
+                <div class="v num">{{ fmt(x.value, sel.kpi) }}</div>
+                <div class="row"><svg width="66" height="26" viewBox="0 0 84 26" preserveAspectRatio="none" v-html="spark(x.spark, x.is_alarm)"></svg>
+                  <span class="tag" :class="{ ok: !x.is_alarm }">{{ x.is_alarm ? '알람' : '정상' }}</span></div>
+              </div>
             </div>
-            <div v-else class="done">{{ item.decided }}</div>
           </div>
-          <details v-else-if="item.kind === 'prompt'" class="prompt-box">
-            <summary>AI에 전달된 지시문 보기</summary><pre>{{ item.text }}</pre>
-          </details>
-        </template>
+
+          <!-- ---- 선택 KPI 추이 ---- -->
+          <div class="card chart">
+            <div class="ph"><h3>{{ sel.device }} · {{ label(sel.kpi) }}</h3>
+              <div class="legend"><span><i class="lg-o"></i>관측값</span><span><i class="lg-u"></i>평소값</span><span><i class="lg-s"></i>이상 점수</span></div></div>
+            <div class="kcode">{{ sel.kpi }}</div>
+            <div class="glabel"><span>{{ isRate(sel.kpi) ? '성공률 (%)' : '시도 건수' }}</span></div>
+            <svg viewBox="0 0 600 190" preserveAspectRatio="none" style="height:190px" v-html="valueChart"></svg>
+            <div class="glabel"><span>이상 점수</span><span class="red" v-if="selPoint">이상 점수 {{ selPoint.score?.toFixed(3) }} {{ selPoint.score >= series.threshold ? '>' : '<' }} 기준선 {{ series.threshold?.toFixed(3) }}</span></div>
+            <svg viewBox="0 0 600 110" preserveAspectRatio="none" style="height:110px" v-html="scoreChart"></svg>
+            <div class="pairbox num" v-if="selPoint">
+              <div><small>짝 KPI · {{ series.pair }}</small><br><b>{{ fmt(pairPoint?.value, series.pair) }}</b>
+                <small>평소 {{ fmt(pairPoint?.usual, series.pair) }} · {{ change(pairPoint, series.pair) }}</small></div>
+              <div class="vline"></div>
+              <div><small>{{ isRate(sel.kpi) ? '성공률 편차' : '시도 건수 변화' }}</small><br>
+                <b :class="dev(selPoint, sel.kpi) < 0 ? 'red' : 'amber'">{{ devText(selPoint, sel.kpi) }}</b>
+                <small>평소 {{ fmt(selPoint.usual, sel.kpi) }} 대비</small></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- 알람 목록 ---- -->
+        <div>
+          <div class="card tbl">
+            <div class="ph"><h3>알람 목록</h3><span class="muted">이상 점수 높은 순</span>
+              <div class="filters">
+                <select class="sel" v-model="fDev"><option value="">전체 장비</option><option v-for="x in meta.devices" :key="x" :value="x">{{ x }}</option></select>
+                <select class="sel" v-model="fKpi"><option value="">전체 KPI</option><option v-for="k in kpiList" :key="k.kpi" :value="k.kpi">{{ k.label }}</option></select>
+                <select class="sel" v-model="fDir"><option value="">전체 방향</option><option>급증</option><option>급감</option></select>
+              </div></div>
+            <div class="scroll">
+              <table class="num"><thead><tr><th>시각</th><th>장비</th><th>KPI</th><th>방향</th><th class="rt">관측값</th><th class="rt">평소값</th><th class="rt">점수</th><th></th></tr></thead>
+                <tbody><tr v-for="a in shownAlarms" :key="a.device + a.kpi + a.ts" class="r" :class="{ on: isSel(a) }" @click="pickAlarm(a, true)">
+                  <td>{{ a.ts }}</td><td>{{ a.device }}</td><td>{{ a.label }} <span class="muted">{{ a.kpi }}</span></td>
+                  <td :class="a.direction === '급감' ? 'red' : 'amber'">{{ a.direction }}</td>
+                  <td class="rt">{{ fmt(a.value, a.kpi) }}</td><td class="rt">{{ fmt(a.usual, a.kpi) }}</td><td class="rt">{{ a.score.toFixed(3) }}</td><td class="muted">›</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="note">알람 = 장비 × KPI × 시각 · 행을 누르면 AI 분석을 시작합니다</div>
+        </div>
       </div>
-      <form @submit.prevent="onSubmit">
-        <input v-model="input" autocomplete="off" placeholder="예: MME-A03 pag_sms_succ_rate 2026-10-16 08:00 알람 원인 분석해줘 · 이어서: 그 장비 짝 지표는?" />
-        <button type="submit" :disabled="sending">보내기</button>
-      </form>
-    </section>
-  </main>
+
+      <!-- ---- AI 알람 분석 ---- -->
+      <div class="card ai">
+        <div class="t">
+          <div><h2>AI 알람 분석</h2>
+            <div class="alarm"><b>{{ cur.alarm?.device || sel.device }}</b>· {{ cur.alarm?.kpi || sel.kpi }}<br>
+              <span class="num">{{ cur.alarm?.ts || sel.ts }}</span>
+              <span v-if="cur.alarm?.found_by === '이전 질문'" class="amber"> · 앞 질문을 이어서 분석</span></div></div>
+          <button class="btn" style="margin-left:auto" :disabled="busy" @click="analyze(sel)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>{{ cur.started ? '다시 분석' : '분석 시작' }}</button>
+        </div>
+
+        <template v-if="cur.started">
+          <div class="steps">
+            <template v-for="(n, i) in ['지표 분석', '장비 비교', '절차 검색']" :key="n">
+              <span v-if="i" class="arrow">⟶</span>
+              <span class="st" :class="{ done: cur.tasks[n], run: busy && !cur.tasks[n] }"><span class="ck">{{ cur.tasks[n] ? '✓' : '' }}</span>{{ n }}</span>
+            </template>
+          </div>
+          <div class="steps2" :class="{ warn: cur.pending }" v-if="cur.validation">
+            <div><span class="st done"><span class="ck">✓</span></span>{{ cur.validation }}</div>
+            <div>{{ cur.pending ? '⚠ 운영자 승인 대기' : (cur.done ? '📄 리포트 완성' : '작성 중…') }}</div>
+          </div>
+        </template>
+
+        <div class="scroll">
+          <div v-if="!cur.started" class="empty">왼쪽 알람 목록이나 장비 카드를 고른 뒤<br><b>분석 시작</b>을 누르면 에이전트가 근거를 모아<br>3구역 리포트를 작성합니다.</div>
+
+          <template v-if="cur.facts.length">
+            <div class="sec">
+              <div class="sh"><span class="no">01</span><h4>조회한 사실</h4><span class="r">코드가 작성 · {{ meta.data_mode === 'original' ? '실제' : '합성' }} 데이터 기준</span></div>
+              <div class="tiles num" v-if="reportPoint">
+                <div class="tile"><small>{{ isRate(cur.alarm.kpi) ? '성공률' : '시도 건수' }}</small><b>{{ fmt(reportPoint.value, cur.alarm.kpi) }}</b></div>
+                <div class="tile"><small>평소값</small><b>{{ fmt(reportPoint.usual, cur.alarm.kpi) }}</b></div>
+                <div class="tile"><small>편차</small><b :class="dev(reportPoint, cur.alarm.kpi) < 0 ? 'red' : 'amber'">{{ devText(reportPoint, cur.alarm.kpi) }}</b></div>
+              </div>
+              <div class="facts"><div class="fact" v-for="(f, i) in cur.facts" :key="i"><span class="id">[F{{ i + 1 }}]</span><span>{{ f }}</span></div></div>
+            </div>
+            <div class="sec">
+              <div class="sh"><span class="no">02</span><h4>점검 절차</h4><span class="r">RAG 검색 · 작성자 정리 교육용 Runbook</span></div>
+              <div class="facts"><div class="fact ref" v-for="r in cur.refs" :key="r.id" @click="r.open = !r.open">
+                <span class="id">[{{ r.id }}]</span><div>{{ r.ref }}<div class="steps-txt" v-if="r.open">{{ r.steps.join('\n') }}</div></div></div></div>
+            </div>
+          </template>
+
+          <div class="sec" v-if="cur.hypothesis || cur.live">
+            <div class="sh"><span class="no">03</span><h4>AI 원인 추정</h4><span class="badge">가설 · 원인 미확정</span></div>
+            <div class="hyp">
+              <div v-if="!cur.hypothesis" class="live">{{ cur.live }}</div>
+              <template v-else>
+                <p class="cand" v-for="(c, i) in hyp.cands" :key="i">{{ c }}</p>
+                <ol v-if="hyp.steps.length"><li v-for="(s, i) in hyp.steps" :key="i" :class="{ hold: s.hold }">{{ s.text }}</li></ol>
+              </template>
+            </div>
+            <div class="vnote" v-if="cur.vnote">{{ cur.vnote }}</div>
+            <div class="approval" v-if="cur.pending">
+              <b>⚠ 운영자 승인 필요 — 되돌리기 어려운 조치가 포함되어 있습니다</b>
+              <ul><li v-for="(a, i) in cur.actions" :key="i">{{ a }}</li></ul>
+              <div class="btns"><button class="btn ok" @click="decide(true)">승인</button><button class="btn hold" @click="decide(false)">보류</button></div>
+            </div>
+          </div>
+
+          <div class="chat"><div v-for="(m, i) in chatLog" :key="i" class="msg" :class="m.role">{{ m.text }}</div></div>
+        </div>
+
+        <div class="follow">
+          <button @click="ask('그 장비 짝 지표는?')" :disabled="busy">그 장비 짝 지표는? <span>›</span></button>
+          <button @click="ask(otherDeviceQuestion)" :disabled="busy">{{ otherDeviceQuestion }} <span>›</span></button>
+        </div>
+        <form class="ask" @submit.prevent="ask(input)">
+          <input v-model="input" placeholder="이 알람에 대해 추가로 질문하세요" />
+          <button class="btn" :disabled="busy" type="submit">➤</button>
+        </form>
+        <div class="foot2">합성 데이터 기반 설계 시안 · 장비 조치 실행 기능 없음</div>
+      </div>
+    </div>
+
+    <!-- ================= KPI 탐색 ================= -->
+    <div class="page" v-if="view === 'kpi'">
+      <div class="hd"><div><h1>KPI 탐색</h1><p>장비와 KPI를 골라 전체 기간의 관측값 · 평소값 · 이상 점수를 봅니다</p></div>
+        <div class="period"><select class="sel" v-model="ex.device" @change="loadExplore"><option v-for="x in meta.devices" :key="x">{{ x }}</option></select>
+          <select class="sel" v-model="ex.kpi" @change="loadExplore"><option v-for="k in kpiList" :key="k.kpi" :value="k.kpi">{{ k.label }}</option></select></div></div>
+      <div class="card chart" style="padding-top:6px">
+        <div class="ph"><h3>{{ ex.device }} · {{ label(ex.kpi) }}</h3><div class="legend"><span><i class="lg-o"></i>관측값</span><span><i class="lg-u"></i>평소값</span><span><i class="lg-s"></i>알람</span></div></div>
+        <svg viewBox="0 0 1000 260" preserveAspectRatio="none" style="height:300px" v-html="exploreValue"></svg>
+        <div class="glabel"><span>이상 점수 (기준선 {{ exSeries.threshold }})</span><span class="muted">알람 {{ exSeries.points.filter(p => p.is_alarm).length }}건</span></div>
+        <svg viewBox="0 0 1000 120" preserveAspectRatio="none" style="height:140px" v-html="exploreScore"></svg>
+      </div>
+      <div class="card tbl" style="max-height:none">
+        <div class="ph"><h3>이 장비 · KPI의 알람</h3><span class="muted">전체 기간 · 학습 / 검증 / 평가 구간 포함</span></div>
+        <table class="num"><thead><tr><th>시각</th><th class="rt">관측값</th><th class="rt">평소값</th><th class="rt">편차</th><th class="rt">이상 점수</th><th></th></tr></thead>
+          <tbody><tr v-for="p in exSeries.points.filter(p => p.is_alarm)" :key="p.ts" class="r" @click="pickAlarm({ device: ex.device, kpi: ex.kpi, ts: p.ts }, true); view = 'alarm'">
+            <td>{{ p.ts }}</td><td class="rt">{{ fmt(p.value, ex.kpi) }}</td><td class="rt">{{ fmt(p.usual, ex.kpi) }}</td>
+            <td class="rt" :class="dev(p, ex.kpi) < 0 ? 'red' : 'amber'">{{ devText(p, ex.kpi) }}</td><td class="rt">{{ p.score?.toFixed(3) }}</td><td class="muted">분석 ›</td></tr>
+            <tr v-if="!exSeries.points.some(p => p.is_alarm)"><td colspan="6" class="muted">알람이 없습니다</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- ================= 에이전트 운영 ================= -->
+    <div class="page" v-if="view === 'ops'">
+      <div class="hd"><div><h1>에이전트 운영</h1><p>서버가 켜진 뒤 처리한 분석 요청의 운영 지표 (/metrics)</p></div>
+        <button class="btn ghost" style="margin-left:auto" @click="loadMetrics">새로고침</button></div>
+      <div class="mgrid" v-if="metrics">
+        <div class="card mcard"><small>분석 요청</small><b class="num">{{ metrics.requests }}건</b><small>{{ Object.entries(metrics.by_route).map(([k, v]) => k + ' ' + v).join(' · ') || '-' }}</small></div>
+        <div class="card mcard"><small>응답 시간 (평균 / p95)</small><b class="num">{{ metrics.latency_sec.avg ?? '-' }}초</b><small>p50 {{ metrics.latency_sec.p50 ?? '-' }} · p95 {{ metrics.latency_sec.p95 ?? '-' }}초</small></div>
+        <div class="card mcard"><small>내용 검사 1차 통과율</small><b class="num">{{ metrics.validation.first_pass_rate == null ? '-' : Math.round(metrics.validation.first_pass_rate * 100) + '%' }}</b><small>검사 {{ metrics.validation.runs }}건</small></div>
+        <div class="card mcard"><small>운영자 승인</small><b class="num">{{ metrics.approval.requested }}건 요청</b><small>승인 {{ metrics.approval.approved }} · 보류 {{ metrics.approval.held }}</small></div>
+      </div>
+      <div class="card" v-if="metrics"><table class="kv num">
+        <tr><td>AI 모델</td><td>{{ backendLabel }}</td></tr>
+        <tr><td>탐지 모델</td><td>{{ metrics.detector_model }}</td></tr>
+        <tr><td>AI 비용 (누적)</td><td>${{ metrics.cost_usd.toFixed(4) }}</td></tr>
+        <tr><td>조사 실패 (서브에이전트)</td><td>{{ metrics.subagent_failures }}건</td></tr>
+        <tr><td>검사 반려 사유</td><td>{{ Object.entries(metrics.validation.problems).map(([k, v]) => k + ' (' + v + ')').join(' / ') || '없음' }}</td></tr>
+        <tr><td>가동 시간</td><td>{{ metrics.uptime_sec }}초</td></tr>
+      </table></div>
+    </div>
+  </div>
 </div>
 
 <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.prod.js"></script>
 <script>
-const { createApp, ref, reactive, nextTick } = Vue;
+const { createApp, ref, reactive, computed } = Vue;
 
-/* ---- 진행 단계 표시 문구 ---- */
-const STEP_LABELS = {
-  PlanCreated: e => `분석 계획: ${e.alarm.device} · ${e.alarm.kpi} · ${e.alarm.ts} → ${e.targets.join(' / ')} 담당에게 조사 지시`,
-  NeedInfo: () => '분석할 알람을 찾지 못함',
-  TaskCompleted: e => `${e.target} 완료` + (e.ok ? '' : ` (실패: ${e.error})`) + (e.retries ? ' (재시도 성공)' : ''),
-  ReplanCheck: e => e.is_sufficient ? null : `조사 실패 → "${e.target}" 다시 조사`,
-  AnalysisCompleted: e => `판단 유형: ${e.patterns.join(', ') || '없음'}`,
-  DraftWritten: e => `리포트 작성 (시도 ${e.attempt})`,
-  Validation: e => e.verdict === '불합격' ? `수치 검사 반려 → 다시 작성 (${e.problems.join(' ')})` : `수치 검사 통과 (숫자 ${e.numbers_checked}개 대조)`,
-  ApprovalDecided: e => e.approved ? '운영자 승인 → 리포트 확정' : `위험 조치 보류 (${e.by}) → 리포트 확정`,
-  Finalize: () => '리포트 완성',
-};
+/* ---- 숫자 · 날짜 ---- */
+const isRate = k => (k || '').includes('succ_rate');
+const fmt = (v, k) => v == null ? '-' : isRate(k) ? v.toFixed(2) + '%' : Math.round(v).toLocaleString() + '건';
+const addH = (ts, h) => { const t = new Date(ts.replace(' ', 'T') + ':00'); t.setHours(t.getHours() + h);
+  const p = n => String(n).padStart(2, '0'); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:00`; };
+
+/* ---- SVG 그래프 (외부 라이브러리 없이) ---- */
+function lineChart(points, { w, h, key, markTs, usual = true, thr = null, color = '#39c6e6', pad = [34, 10, 10, 26], alarmDots = false, rate = false }) {
+  const [L, R, T, B] = pad, vals = points.flatMap(p => [p[key], usual ? p.usual : null]).filter(v => v != null);
+  if (thr != null) vals.push(thr);
+  if (!vals.length) return '';
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (key === 'score') { lo = 0; hi = Math.max(1, hi); }
+  const span = hi - lo || 1; if (key !== 'score') { lo -= span * 0.08; hi += span * 0.08; }
+  const X = i => L + (w - L - R) * (points.length === 1 ? 0.5 : i / (points.length - 1));
+  const Y = v => T + (h - T - B) * (1 - (v - lo) / (hi - lo));
+  let s = '';
+  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, y = Y(v);
+    s += `<line x1="${L}" x2="${w - R}" y1="${y}" y2="${y}" stroke="#222b46" stroke-width="1"/>`;
+    s += `<text x="${L - 6}" y="${y + 3.5}" fill="#7d86a3" font-size="10.5" text-anchor="end">${key === 'score' ? v.toFixed(1) : rate ? v.toFixed(hi - lo < 1 ? 2 : 1) : (v >= 1000 ? (v / 1000).toFixed(hi - lo < 5000 ? 1 : 0) + 'k' : v.toFixed(0))}</text>`; }
+  const step = Math.max(1, Math.ceil(points.length / 10));
+  points.forEach((p, i) => { if (i % step === 0) s += `<text x="${X(i)}" y="${h - 8}" fill="#7d86a3" font-size="10.5" text-anchor="middle">${points.length > 48 ? p.ts.slice(5, 13).replace('-', '/') + '시' : p.ts.slice(11)}</text>`; });
+  const path = k => { let d = '', pen = false; points.forEach((p, i) => { if (p[k] == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${X(i)},${Y(p[k])}`; pen = true; }); return d; };
+  if (usual) s += `<path d="${path('usual')}" fill="none" stroke="#c9cfe3" stroke-width="1.4" stroke-dasharray="5 4"/>`;
+  if (thr != null) s += `<line x1="${L}" x2="${w - R}" y1="${Y(thr)}" y2="${Y(thr)}" stroke="#ef4652" stroke-width="1.3" stroke-dasharray="6 4"/><text x="${w - R}" y="${Y(thr) - 4}" fill="#ef4652" font-size="10.5" text-anchor="end">${thr.toFixed(3)}</text>`;
+  s += `<path d="${path(key)}" fill="none" stroke="${color}" stroke-width="2"/>`;
+  points.forEach((p, i) => { if (p[key] == null) return;
+    if (points.length <= 30) s += `<circle cx="${X(i)}" cy="${Y(p[key])}" r="2.8" fill="${color}"/>`;
+    if (alarmDots && p.is_alarm) s += `<circle cx="${X(i)}" cy="${Y(p[key])}" r="3.5" fill="#ef4652"/>`; });
+  const mi = points.findIndex(p => p.ts === markTs);
+  if (mi >= 0 && points[mi][key] != null) {
+    const x = X(mi), y = Y(points[mi][key]);
+    s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${h - B}" stroke="#ef4652" stroke-width="1" stroke-dasharray="3 3"/>`;
+    s += `<circle cx="${x}" cy="${y}" r="5" fill="#ef4652" stroke="#fff" stroke-width="1.5"/>`;
+    if (key !== 'score') { const lbl = rate ? points[mi][key].toFixed(2) + '%' : Math.round(points[mi][key]).toLocaleString();
+      const sub = points[mi].usual == null ? '' : '평소 ' + (rate ? points[mi].usual.toFixed(2) + '%' : Math.round(points[mi].usual).toLocaleString());
+      const bx = Math.min(x + 12, w - R - 112), by = Math.max(y - 46, T);
+      s += `<rect x="${bx}" y="${by}" width="104" height="38" rx="5" fill="#1a1420" stroke="#ef4652"/><text x="${bx + 8}" y="${by + 16}" fill="#ff6b75" font-size="13" font-weight="700">${lbl}</text><text x="${bx + 8}" y="${by + 31}" fill="#d5d9e8" font-size="10.5">${sub}</text>`; }
+    else s += `<text x="${x}" y="${y - 9}" fill="#fff" font-size="11" text-anchor="middle">${points[mi][key].toFixed(3)}</text>`;
+  }
+  return s;
+}
 
 createApp({
   setup() {
-    const backendLabel = ref('');
-    const dataMode = ref('');
-    const alarms = ref([]);
-    const selected = ref(null);
-    const log = ref([]);
-    const input = ref('');
-    const sending = ref(false);
-    const metrics = ref(null);
-    const loadMetrics = () => fetch('/metrics').then(r => r.json()).then(m => { metrics.value = m; }).catch(() => {});
-    loadMetrics();
-    const logEl = ref(null);
+    const view = ref('alarm'), meta = ref({}), online = ref(false), backendLabel = ref('');
+    const alarms = ref([]), kpiList = ref([]), snap = ref([]), series = ref({ points: [], threshold: 0 }), pair = ref({ points: [] });
+    const sel = reactive({ device: '', kpi: '', ts: '' });
+    const fDev = ref(''), fKpi = ref(''), fDir = ref(''), input = ref(''), busy = ref(false), chatLog = ref([]);
+    const metrics = ref(null), ex = reactive({ device: 'MME-A01', kpi: 'pag_sms_succ_rate' }), exSeries = ref({ points: [], threshold: 0 });
     const thread = 't-web-' + Math.random().toString(36).slice(2, 8);
-    let nextId = 0;
+    const blank = () => ({ started: false, alarm: null, tasks: {}, validation: '', vnote: '', facts: [], refs: [], hypothesis: '', live: '', pending: false, actions: [], runId: '', done: false, alarmPoint: null });
+    const cur = reactive(blank());
 
-    /* ---- 처음 열 때: 서버 정보와 알람 목록 ---- */
-    fetch('/health').then(r => r.json()).then(h => {
-      backendLabel.value = `${h.llm_backend} (${h.fast_llm} / ${h.quality_llm})`;
-      dataMode.value = h.data_mode;
-    }).catch(() => {});
-    fetch('/meta').then(r => r.json()).then(m =>
-      fetch(`/alarms?start=${encodeURIComponent(m.alarm_from)}&limit=80`)).then(r => r.json())
-      .then(list => { alarms.value = list; }).catch(() => {});
+    const label = k => (kpiList.value.find(x => x.kpi === k) || {}).label || k;
+    const d = s => (s || '').slice(0, 10).replaceAll('-', '.');
+    const dev = (p, k) => p && p.value != null && p.usual ? (isRate(k) ? p.value - p.usual : (p.value / p.usual - 1) * 100) : 0;
+    const devText = (p, k) => { const v = dev(p, k); return (v > 0 ? '+' : '') + v.toFixed(isRate(k) ? 2 : 1) + (isRate(k) ? '%p' : '%'); };
+    const change = (p, k) => p && p.usual ? `${dev(p, k) >= 0 ? '+' : ''}${dev(p, k).toFixed(isRate(k) ? 2 : 1)}${isRate(k) ? '%p' : '%'}` : '';
+    const spark = (vals, alarm) => { const v = vals.filter(x => x != null); if (v.length < 2) return '';
+      const lo = Math.min(...v), hi = Math.max(...v), sp = hi - lo || 1;
+      const pts = vals.map((x, i) => x == null ? null : `${2 + 80 * i / (vals.length - 1)},${23 - 20 * (x - lo) / sp}`).filter(Boolean);
+      return `<polyline points="${pts.join(' ')}" fill="none" stroke="${alarm ? '#39c6e6' : '#5f7fa8'}" stroke-width="1.5"/>`; };
 
-    async function scrollToBottom() {
-      await nextTick();
-      if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight;
+    const shownAlarms = computed(() => alarms.value.filter(a => (!fDev.value || a.device === fDev.value) && (!fKpi.value || a.kpi === fKpi.value) && (!fDir.value || a.direction === fDir.value)));
+    const selPoint = computed(() => series.value.points.find(p => p.ts === sel.ts));
+    const pairPoint = computed(() => pair.value.points.find(p => p.ts === sel.ts));
+    const valueChart = computed(() => lineChart(series.value.points, { w: 600, h: 190, key: 'value', markTs: sel.ts, rate: isRate(sel.kpi) }));
+    const scoreChart = computed(() => lineChart(series.value.points, { w: 600, h: 110, key: 'score', markTs: sel.ts, usual: false, thr: series.value.threshold, color: '#ef4652' }));
+    const exploreValue = computed(() => lineChart(exSeries.value.points, { w: 1000, h: 260, key: 'value', alarmDots: true, rate: isRate(ex.kpi) }));
+    const exploreScore = computed(() => lineChart(exSeries.value.points, { w: 1000, h: 120, key: 'score', usual: false, thr: exSeries.value.threshold, color: '#ef4652' }));
+    const reportPoint = computed(() => cur.alarmPoint);
+    const otherDeviceQuestion = computed(() => { const o = snap.value.find(x => x.device !== (cur.alarm?.device || sel.device) && x.is_alarm) || snap.value.find(x => x.device !== sel.device);
+      return o ? `같은 시각 ${o.device}는?` : '같은 시각 다른 장비는?'; });
+    const hyp = computed(() => { const lines = cur.hypothesis.split('\n').map(s => s.trim()).filter(Boolean);
+      const cands = [], steps = []; let inSteps = false;
+      for (const l of lines) { if (l.startsWith('점검 순서')) { inSteps = true; continue; }
+        if (inSteps) { const hold = l.includes('[보류'); steps.push({ text: l.replace(/^\[보류[^\]]*\]\s*/, '').replace(/^\d+[.)]\s*/, '') + (hold ? '  — 보류(운영자 미승인)' : ''), hold }); }
+        else cands.push(l); }
+      return { cands, steps }; });
+
+    /* ---- 데이터 불러오기 ---- */
+    const j = u => fetch(u).then(r => r.json());
+    async function loadView() {
+      if (!sel.kpi) return;
+      const [s, p, n] = await Promise.all([j(`/series?device=${sel.device}&kpi=${sel.kpi}&start=${encodeURIComponent(addH(sel.ts, -6))}&end=${encodeURIComponent(addH(sel.ts, 3))}`),
+        j(`/series?device=${sel.device}&kpi=${pairKpi(sel.kpi)}&start=${encodeURIComponent(sel.ts)}&end=${encodeURIComponent(sel.ts)}`),
+        j(`/snapshot?kpi=${sel.kpi}&ts=${encodeURIComponent(sel.ts)}`)]);
+      series.value = s; pair.value = p; snap.value = n;
     }
+    const pairKpi = k => (kpiList.value.find(x => x.kpi === k) || {}).pair || k;
+    function pickAlarm(a, run) { Object.assign(sel, { device: a.device, kpi: a.kpi, ts: a.ts }); loadView(); if (run) analyze(sel); }
+    function pickDevice(devName) { sel.device = devName; loadView(); }
+    const isSel = a => a.device === sel.device && a.kpi === sel.kpi && a.ts === sel.ts;
+    async function loadExplore() { exSeries.value = await j(`/series?device=${ex.device}&kpi=${ex.kpi}`); }
+    async function loadMetrics() { metrics.value = await j('/metrics'); }
 
-    function analyze(a) {
-      selected.value = a;
-      send(`${a.device} ${a.kpi} ${a.ts} 알람 원인 분석해줘`);
+    async function init() {
+      try { const h = await j('/health'); online.value = true;
+        backendLabel.value = h.llm_backend === 'fake' ? 'fake (테스트용 AI)' : `${h.llm_backend === 'openai' ? 'OpenAI' : 'Ollama'} · ${h.quality_llm.replace(/^\w+:/, '')}`; } catch { online.value = false; }
+      meta.value = await j('/meta'); kpiList.value = await j('/kpis');
+      alarms.value = await j(`/alarms?start=${encodeURIComponent(meta.value.alarm_from)}&limit=100`);
+      const first = alarms.value.find(a => a.device === 'MME-A03' && a.kpi === 'pag_sms_succ_rate') || alarms.value[0];
+      if (first) pickAlarm(first, false);
     }
+    init();
 
-    function onSubmit() {
-      const text = input.value.trim();
-      if (text) { input.value = ''; send(text); }
-    }
+    /* ---- 분석 (SSE) ---- */
+    function analyze(s) { Object.assign(cur, blank(), { started: true }); chatLog.value = [];
+      stream(`/chat/stream?message=${encodeURIComponent(`${s.device} ${s.kpi} ${s.ts} 알람 원인 분석해줘`)}&thread_id=${thread}`); }
+    function ask(text) { text = (text || '').trim(); if (!text || busy.value) return; input.value = '';
+      chatLog.value.push({ role: 'q', text });
+      stream(`/chat/stream?message=${encodeURIComponent(text)}&thread_id=${thread}`, true); }
+    function decide(ok) { cur.pending = false; cur.vnote += ok ? ' · 운영자 승인' : ' · 운영자 보류';
+      stream(`/chat/resume/stream?run_id=${encodeURIComponent(cur.runId)}&approved=${ok}`); }
 
-    /* ---- 질문 보내고 진행 상황(SSE) 받기 ---- */
-    function send(text) {
-      if (sending.value) return;
-      log.value.push({ id: nextId++, kind: 'user', text });
-      openStream(`/chat/stream?message=${encodeURIComponent(text)}&thread_id=${encodeURIComponent(thread)}`);
-    }
-
-    /* ---- 사람 승인(HITL): 버튼을 누르면 멈춰 있던 분석을 이어서 진행 ---- */
-    function decide(item, approved) {
-      if (sending.value) return;
-      item.decided = approved ? '승인함 — 리포트를 확정합니다' : '보류함 — 해당 조치를 보류로 표시합니다';
-      openStream(`/chat/resume/stream?run_id=${encodeURIComponent(item.runId)}&approved=${approved}`);
-    }
-
-    function openStream(url) {
-      sending.value = true;
-      const stepsItem = reactive({ id: nextId++, kind: 'steps', steps: [] });
-      log.value.push(stepsItem);
-      scrollToBottom();
-
+    function stream(url, followUp = false) {
+      busy.value = true; let gotReport = false, liveAttempt = 0;
       const es = new EventSource(url);
-      let streamItem = null, streamAttempt = null;
-      es.onmessage = (event) => {
-        if (event.data === '[DONE]') { es.close(); sending.value = false; loadMetrics(); return; }
+      es.onmessage = async (event) => {
+        if (event.data === '[DONE]') { es.close(); busy.value = false; return; }
         let e; try { e = JSON.parse(event.data); } catch { return; }
-        if (e.type === 'AnswerToken') {
-          if (!streamItem || streamAttempt !== e.attempt) {
-            streamItem = reactive({ id: nextId++, kind: 'agent', text: '' });
-            log.value.push(streamItem); streamAttempt = e.attempt;
-          }
-          streamItem.text += e.delta; scrollToBottom(); return;
-        }
-        if (e.type === 'ApprovalRequired') {
-          if (!streamItem) { streamItem = reactive({ id: nextId++, kind: 'agent', text: '' }); log.value.push(streamItem); }
-          streamItem.text = e.draft + '\n\n(운영자 승인 대기 중)';
-          stepsItem.steps.push('위험 조치 발견 → 운영자 승인 대기');
-          log.value.push(reactive({ id: nextId++, kind: 'approval', actions: e.actions, runId: e.run_id, decided: '' }));
-          streamItem = null; scrollToBottom(); return;
-        }
-        if (e.type === 'FinalAnswer') {
-          if (!streamItem) { streamItem = reactive({ id: nextId++, kind: 'agent', text: '' }); log.value.push(streamItem); }
-          streamItem.text = e.reply;
-          if (e.prompt) log.value.push({ id: nextId++, kind: 'prompt', text: e.prompt });
-          streamItem = null; streamAttempt = null; scrollToBottom(); return;
-        }
-        const fn = STEP_LABELS[e.type]; if (!fn) return;
-        const label = fn(e); if (label) { stepsItem.steps.push(label); scrollToBottom(); }
+        if (e.type === 'PlanCreated') { if (followUp) { Object.assign(cur, blank(), { started: true }); chatLog.value = []; } cur.alarm = e.alarm;
+          if (e.alarm) { Object.assign(sel, { device: e.alarm.device, kpi: e.alarm.kpi, ts: e.alarm.ts }); loadView(); } }
+        if (e.type === 'TaskCompleted') cur.tasks[e.target] = true;
+        if (e.type === 'AnswerToken' && e.attempt) { if (e.attempt !== liveAttempt) { cur.live = ''; liveAttempt = e.attempt; } cur.live += e.delta; }
+        if (e.type === 'Validation') { if (e.verdict === '불합격') { cur.vnote = '내용 검사 1차 반려 → 재작성: ' + e.problems.join(' '); cur.validation = '내용 검사 반려 · 재작성 중'; }
+          else cur.validation = e.attempt > 1 ? '내용 검사 통과 (재작성 후)' : '내용 검사 통과'; }
+        if (e.type === 'ApprovalRequired') { cur.pending = true; cur.actions = e.actions; cur.runId = e.run_id; }
+        if (e.type === 'Report') { gotReport = true; cur.alarm = e.alarm; cur.facts = e.facts; cur.refs = e.refs.map(r => ({ ...r, open: false }));
+          cur.hypothesis = e.hypothesis; cur.done = !e.pending_approval;
+          const s = await j(`/series?device=${e.alarm.device}&kpi=${e.alarm.kpi}&start=${encodeURIComponent(e.alarm.ts)}&end=${encodeURIComponent(e.alarm.ts)}`);
+          cur.alarmPoint = s.points[0] || null; }
+        if (e.type === 'NeedInfo') cur.started = cur.facts.length > 0;
+        if (e.type === 'FinalAnswer' && !gotReport && e.reply && !cur.pending) chatLog.value.push({ role: 'a', text: e.reply });
       };
-      es.onerror = () => { es.close(); sending.value = false; };
+      es.onerror = () => { es.close(); busy.value = false; };
     }
 
-    return { backendLabel, dataMode, alarms, selected, log, input, sending, logEl, onSubmit, analyze, decide, metrics };
+    return { view, meta, online, backendLabel, alarms, kpiList, snap, series, sel, fDev, fKpi, fDir, input, busy, chatLog, metrics, ex, exSeries, cur,
+      label, d, fmt, isRate, dev, devText, change, spark, shownAlarms, selPoint, pairPoint, valueChart, scoreChart, exploreValue, exploreScore,
+      reportPoint, otherDeviceQuestion, hyp, pickAlarm, pickDevice, isSel, loadExplore, loadMetrics, analyze, ask, decide };
   },
 }).mount('#app');
 </script>

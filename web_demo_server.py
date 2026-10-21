@@ -52,6 +52,27 @@ async def proxy_metrics() -> JSONResponse:
     return JSONResponse(r.json(), status_code=r.status_code)
 
 
+async def _proxy_get(path: str, request: Request) -> JSONResponse:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(f"{BACKEND}{path}", params=dict(request.query_params))
+    return JSONResponse(r.json(), status_code=r.status_code)
+
+
+@app.get("/kpis")
+async def proxy_kpis(request: Request) -> JSONResponse:
+    return await _proxy_get("/kpis", request)
+
+
+@app.get("/series")
+async def proxy_series(request: Request) -> JSONResponse:
+    return await _proxy_get("/series", request)
+
+
+@app.get("/snapshot")
+async def proxy_snapshot(request: Request) -> JSONResponse:
+    return await _proxy_get("/snapshot", request)
+
+
 @app.get("/alarms")
 async def proxy_alarms(request: Request) -> JSONResponse:
     async with httpx.AsyncClient(timeout=30.0) as client:
