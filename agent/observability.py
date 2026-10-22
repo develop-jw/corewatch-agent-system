@@ -82,12 +82,22 @@ def status(limit: int = 8) -> dict:
         proj = c.read_project(project_name=project_name())
         info["project_url"] = getattr(proj, "url", None)
         runs = c.list_runs(project_name=project_name(), is_root=True, limit=limit)
-        info["recent"] = [{"id": str(r.id), "name": r.name, "start": r.start_time.strftime("%m-%d %H:%M:%S") if r.start_time else "",
+        info["recent"] = [{"id": str(r.id), "name": r.name, "start": _local(r.start_time),
                            "latency_sec": _latency(r), "status": r.status, "tokens": r.total_tokens,
                            "feedback": {k: v.get("avg") for k, v in (r.feedback_stats or {}).items()}} for r in runs]
     except Exception as e:
         info["error"] = f"{type(e).__name__}: {str(e)[:120]}"
     return info
+
+
+def _local(t: Any) -> str:
+    """LangSmith 시각(UTC)을 이 PC의 현지 시각으로."""
+    from datetime import timezone
+    if not t:
+        return ""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return t.astimezone().strftime("%m-%d %H:%M:%S")
 
 
 def _latency(run: Any) -> float | None:
