@@ -88,14 +88,21 @@
 | 10. 22. (목) 새벽 | 실제 AI 검증 · 관제 화면 | gpt-4o로 시나리오 반복 실행 → 매뉴얼 위반 '장비 재시작' 권고 발견 → 검사 규칙 추가, 관제 대시보드 구축 | 검증 결과 · 관제 화면 |
 | 10. 22. (목) 오전 | 운영 준비 · 결과 보고 | Mac · Windows 원클릭 실행 스크립트, LangSmith 실행 기록 · 자동 피드백 연동, README · 발표 자료 작성 | 결과 보고서 · 발표 자료 |
 
-**착수 단계 산출물** — 실제 사업처럼 제안서 → 수행계획서 → 요구사항 정의서 순으로 범위를 정하고, 구축과 검증은 이 문서를 기준으로 진행했습니다.
+**착수 단계 산출물** — 실제 사업처럼 제안서 → 수행계획서 → 요구사항 정의서 순으로 범위를 정하고, 구축과 검증은 이 문서를 기준으로 진행했습니다. 표지를 누르면 원본(PDF)이 열립니다.
 
 <p align="center">
-  <img src="docs/images/doc_cover_1_proposal.png" width="30%" alt="사업 제안서">&nbsp;
-  <img src="docs/images/doc_cover_2_plan.png" width="30%" alt="사업수행계획서">&nbsp;
-  <img src="docs/images/doc_cover_3_requirements.png" width="30%" alt="요구사항 정의서">
+  <a href="docs/plan/CoreWatch_사업제안서_v0.9.pdf"><img src="docs/images/doc_cover_1_proposal.png" width="30%" alt="사업 제안서"></a>&nbsp;
+  <a href="docs/plan/CoreWatch_사업수행계획서_v0.9.pdf"><img src="docs/images/doc_cover_2_plan.png" width="30%" alt="사업수행계획서"></a>&nbsp;
+  <a href="docs/plan/CoreWatch_요구사항정의서_v0.9.pdf"><img src="docs/images/doc_cover_3_requirements.png" width="30%" alt="요구사항 정의서"></a>
 </p>
-<p align="center"><sub>사업 제안서 (CW-PROP-002) · 사업수행계획서 (CW-PLAN-002) · 요구사항 정의서 (CW-REQ-002) — 모두 v0.9, 교육용 가상 사업</sub></p>
+
+| 문서 | 문서번호 | 주요 내용 | 원본 |
+|---|---|---|---|
+| 사업 제안서 | CW-PROP-002 · v0.9 | 고객 문제 가설, 솔루션 구성, 검증 항목과 성공 기준, 주장하지 않는 효과 | [PDF · 16쪽](docs/plan/CoreWatch_사업제안서_v0.9.pdf) |
+| 사업수행계획서 | CW-PLAN-002 · v0.9 | 수행 범위, 단계별 일정(WBS), 산출물, 위험 · 미결정 사항 관리 | [PDF · 20쪽](docs/plan/CoreWatch_사업수행계획서_v0.9.pdf) |
+| 요구사항 정의서 | CW-REQ-002 · v0.9 | 기능(FR) · 비기능(NFR) · 데이터(DR) 요구사항, 검수 기준, 1차 데이터 점검 결과 | [PDF · 13쪽](docs/plan/CoreWatch_요구사항정의서_v0.9.pdf) |
+
+<sub>모두 2026. 10. 20. 작성 · 교육용 가상 사업 · 고객 미승인 초안</sub>
 
 ---
 
