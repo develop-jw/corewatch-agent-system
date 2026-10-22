@@ -105,6 +105,19 @@
   .pairbox .ps { display: block; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pairbox .vline { background: var(--line2); }
 
+  /* ---- 노트북 화면 대응: 가운데 영역이 눌리지 않게 단계적으로 배치 변경 ---- */
+  @media (max-width: 1560px) {
+    .body { grid-template-columns: minmax(0, 1fr) 400px; }
+    .mid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  }
+  @media (max-width: 1320px) {
+    #app { grid-template-columns: 184px 1fr; }
+    .body { grid-template-columns: minmax(0, 1fr) 360px; }
+    .left { overflow-y: auto; grid-template-rows: auto auto auto auto; }
+    .mid { grid-template-columns: minmax(0, 1fr); }
+    .grid9 { min-height: 300px; }
+  }
+
   /* ---- 알람 표 ---- */
   .tbl { display: flex; flex-direction: column; max-height: 210px; }
   .tbl .ph .sel { margin-left: 0; min-width: 130px; }
