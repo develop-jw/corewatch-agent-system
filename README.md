@@ -103,6 +103,17 @@ web_chat.html       관제 대시보드 (web_demo_server.py로 실행, 포트 86
 
 ## 6. 프로그램 실행 방법
 
+**한 번에 실행 (권장)** — 가상환경·설치·서버 2개·브라우저까지 자동으로 켭니다. `.env`에 `OPENAI_API_KEY`가 있으면 실제 AI(OpenAI), 없으면 가짜 AI로 켜집니다.
+
+| OS | 실행 |
+|---|---|
+| macOS | Finder에서 `sh/run_mac.command` 더블클릭 (또는 터미널에서 `./sh/run_mac.command`) |
+| Windows | 탐색기에서 `sh\run_windows.bat` 더블클릭 |
+
+이미 켜진 서버가 8100·8600 포트를 잡고 있으면 먼저 끄고 다시 켭니다. 서버 로그는 `logs/`에 남습니다.
+
+**직접 실행**
+
 **설치 (처음 한 번)**
 
 ```powershell

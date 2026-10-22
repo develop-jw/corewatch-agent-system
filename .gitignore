@@ -26,3 +26,5 @@ _answers/
 .DS_Store
 .vscode/
 .idea/
+
+logs/
