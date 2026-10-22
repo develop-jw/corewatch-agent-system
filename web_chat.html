@@ -85,17 +85,24 @@
 
   /* ---- 추이 그래프 ---- */
   .chart { display: flex; flex-direction: column; min-height: 0; padding-bottom: 10px; }
-  .legend { margin-left: auto; display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); }
-  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend { margin-left: auto; display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); flex-shrink: 0; white-space: nowrap; }
+  .legend span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  /* ---- 좁은 화면: 제목은 한 줄 말줄임, 범례는 줄바꿈 대신 아래로 ---- */
+  .chart .ph { flex-wrap: wrap; row-gap: 4px; }
+  .chart .ph h3 { flex: 1 1 160px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lg-o { width: 9px; height: 9px; border-radius: 50%; background: var(--cyan); }
   .lg-u { width: 14px; border-top: 2px dashed #c9cfe3; }
   .lg-s { width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
   .kcode { padding: 0 14px; margin-top: -4px; color: var(--muted); font-size: 12px; }
-  .glabel { display: flex; justify-content: space-between; padding: 8px 14px 0; font-size: 12.5px; color: #cfd4e6; }
+  .glabel { display: flex; justify-content: space-between; gap: 10px; padding: 8px 14px 0; font-size: 12.5px; color: #cfd4e6; white-space: nowrap; }
+  .glabel span:last-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   svg text { font-family: inherit; }
   .chart svg { display: block; width: 100%; }
   .pairbox { display: grid; grid-template-columns: 1fr 1px 1fr; gap: 14px; margin: 8px 12px 0; padding: 10px 14px; border: 1px solid var(--line2); border-radius: 8px; background: #10172a; }
-  .pairbox small { color: var(--muted); font-size: 12px; } .pairbox b { font-size: 19px; margin-right: 8px; }
+  .pairbox > div { min-width: 0; }
+  .pairbox .pl { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pairbox b { display: block; font-size: 19px; margin: 2px 0 1px; white-space: nowrap; }
+  .pairbox .ps { display: block; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pairbox .vline { background: var(--line2); }
 
   /* ---- 알람 표 ---- */
@@ -248,7 +255,7 @@
 
           <!-- ---- 선택 KPI 추이 ---- -->
           <div class="card chart">
-            <div class="ph"><h3>{{ sel.device }} · {{ label(sel.kpi) }}</h3>
+            <div class="ph"><h3 :title="sel.device + ' · ' + label(sel.kpi)">{{ sel.device }} · {{ label(sel.kpi) }}</h3>
               <div class="legend"><span><i class="lg-o"></i>관측값</span><span><i class="lg-u"></i>평소값</span><span><i class="lg-s"></i>이상 점수</span></div></div>
             <div class="kcode">{{ sel.kpi }}</div>
             <div class="glabel"><span>{{ isRate(sel.kpi) ? '성공률 (%)' : '시도 건수' }}</span></div>
@@ -256,12 +263,12 @@
             <div class="glabel"><span>이상 점수</span><span class="red" v-if="selPoint">이상 점수 {{ selPoint.score?.toFixed(3) }} {{ selPoint.score >= series.threshold ? '>' : '<' }} 기준선 {{ series.threshold?.toFixed(3) }}</span></div>
             <svg viewBox="0 0 600 110" preserveAspectRatio="none" style="height:110px" v-html="scoreChart"></svg>
             <div class="pairbox num" v-if="selPoint">
-              <div><small>짝 KPI · {{ series.pair }}</small><br><b>{{ fmt(pairPoint?.value, series.pair) }}</b>
-                <small>평소 {{ fmt(pairPoint?.usual, series.pair) }} · {{ change(pairPoint, series.pair) }}</small></div>
+              <div><span class="pl" :title="series.pair">짝 KPI · {{ label(series.pair) }}</span><b>{{ fmt(pairPoint?.value, series.pair) }}</b>
+                <span class="ps">평소 {{ fmt(pairPoint?.usual, series.pair) }} · {{ change(pairPoint, series.pair) }}</span></div>
               <div class="vline"></div>
-              <div><small>{{ isRate(sel.kpi) ? '성공률 편차' : '시도 건수 변화' }}</small><br>
+              <div><span class="pl">{{ isRate(sel.kpi) ? '성공률 편차' : '시도 건수 변화' }}</span>
                 <b :class="dev(selPoint, sel.kpi) < 0 ? 'red' : 'amber'">{{ devText(selPoint, sel.kpi) }}</b>
-                <small>평소 {{ fmt(selPoint.usual, sel.kpi) }} 대비</small></div>
+                <span class="ps">평소 {{ fmt(selPoint.usual, sel.kpi) }} 대비</span></div>
             </div>
           </div>
         </div>
