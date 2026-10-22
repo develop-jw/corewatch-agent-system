@@ -38,7 +38,7 @@ CoreWatch는 이동통신망 핵심 장비의 성능 지표를 지켜보다가 �
 | 문서 검색(RAG) | 점검 절차 문서 5종, TF-IDF 문자 n-gram (선택: Ollama 임베딩) |
 | AI 모델 | **OpenAI gpt-4o-mini(질문 분류) · gpt-4o(원인 추정)** — 합성 데이터로 실측 / fake(테스트용, 외부 호출 없음) / Ollama(로컬, 코드만 연결) |
 | 화면 | Vue 3 (CDN) 단일 HTML 관제 대시보드, 그래프는 외부 라이브러리 없이 SVG로 직접 그림 |
-| 테스트·운영 | pytest 31개, 시나리오 점검(실제 모델 반복 실행), 운영 지표 `/metrics`, LangSmith(선택, 합성 데이터에서만) |
+| 테스트·운영 | pytest 33개, 시나리오 점검(실제 모델 반복 실행), 운영 지표 `/metrics`, LangSmith(선택, 합성 데이터에서만) |
 
 ## 4. 시스템 아키텍처
 
@@ -99,6 +99,7 @@ web_chat.html       관제 대시보드 (web_demo_server.py로 실행, 포트 86
 | 이어지는 질문 | "그 장비 짝 지표는?"처럼 물으면 직전 알람(장비·시각)을 이어받아 분석 | `agent/mme_query.py` |
 | 관제 대시보드 | 요약 지표 4종, 같은 시각 장비 9대 비교(값·추이·알람), 선택 KPI의 관측값·평소값·이상 점수 그래프, 짝 KPI·편차, 알람 목록 필터, AI 분석 패널(진행 단계·3구역 리포트·승인 버튼·이어지는 질문), KPI 탐색, 에이전트 운영 화면 | `web_chat.html`, `/kpis` `/series` `/snapshot` |
 | 운영 지표 | 요청 수, 응답 시간(평균·p50·p95), 1차 검사 통과율과 반려 사유, 승인·보류 수, 조사 실패, AI 비용을 `/metrics`와 '에이전트 운영' 화면으로 제공 | `agent/metrics.py` |
+| LangSmith 연동 | 분석 1건을 `corewatch_analysis` 실행 기록 하나로 묶어 노드·서브에이전트·MCP 도구·LLM 호출을 계층으로 기록. 끝나면 **자동 피드백**(content_check 내용 검사 통과, first_pass 1차 통과, operator_approval 운영자 승인)을 달고, AI 패널에 실행 기록 링크, '에이전트 운영' 화면에 최근 실행·피드백 표시 (합성 데이터 모드에서만) | `agent/observability.py`, `/trace/status` `/trace/link` |
 | 데이터 보호 | 실제 데이터 모드에서 OpenAI·LangSmith를 켜면 서버가 시작을 거부 | `server.py` |
 
 ## 6. 프로그램 실행 방법
@@ -111,6 +112,13 @@ web_chat.html       관제 대시보드 (web_demo_server.py로 실행, 포트 86
 | Windows | 탐색기에서 `sh\run_windows.bat` 더블클릭 |
 
 이미 켜진 서버가 8100·8600 포트를 잡고 있으면 먼저 끄고 다시 켭니다. 서버 로그는 `logs/`에 남습니다.
+
+**LangSmith 실행 기록 켜기 (선택, 합성 데이터에서만)** — `.env`에 아래 세 줄을 넣고 서버를 다시 켭니다.
+```
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=lsv2_pt_...      # 본인 키
+LANGCHAIN_PROJECT=corewatch
+```
 
 **직접 실행**
 
@@ -147,7 +155,7 @@ bash sh/setup_venv.sh && cp .env.example .env
 **테스트와 평가**
 
 ```powershell
-.venv\Scripts\python.exe -m pytest -q                 # 단위 테스트 31개
+.venv\Scripts\python.exe -m pytest -q                 # 단위 테스트 33개
 .venv\Scripts\python.exe eval\run_scenarios.py        # 시나리오 6개 실행 점검 (가짜 AI)
 $env:LLM_BACKEND="openai"; .venv\Scripts\python.exe eval\run_scenarios.py --repeat 3   # 실제 AI로 3회 반복
 $env:DATA_MODE="original"; .venv\Scripts\python.exe eval\eval_detector.py   # 탐지 모델 평가 (실제 데이터 필요)
@@ -181,7 +189,7 @@ $env:DATA_MODE="original"; .venv\Scripts\python.exe eval\eval_detector.py   # �
 1차 실행에서는 운영자 승인 단계가 이를 막았고, 이후 이 경우를 검사 단계에서 반려하는 규칙을 추가했습니다.
 2차 실행에서는 6건 모두 1차 작성에서 반려된 뒤, 재기동이 빠진 리포트로 다시 쓰였습니다.
 
-### 7-2. 단위 테스트: 31개 통과 (가짜 AI, 외부 호출 없음)
+### 7-2. 단위 테스트: 33개 통과 (가짜 AI, 외부 호출 없음)
 
 | 파일 | 개수 | 확인 내용 |
 |---|---|---|
@@ -192,7 +200,7 @@ $env:DATA_MODE="original"; .venv\Scripts\python.exe eval\eval_detector.py   # �
 | `test_followup_hitl.py` | 8 | 이어지는 질문, 위험 조치 감지, 승인 대기 → 재개 |
 | `test_openai_backend.py` | 1 | OpenAI 백엔드 연결 (가짜 응답, 과금 없음) |
 | `test_metrics.py` | 1 | 운영 지표 집계 |
-| `test_dashboard_api.py` | 1 | 관제 화면 API (/meta · /kpis · /series · /snapshot) |
+| `test_dashboard_api.py` | 3 | 관제 화면 API (/meta · /kpis · /series · /snapshot), SSE 스트림, LangSmith 설정 판별 |
 
 > 가짜 AI는 1차 작성에 일부러 사실에 없는 숫자(37.5)를 넣습니다. 숫자 검사가 이를 잡아 반려하는지 확인하기 위한 장치입니다.
 
@@ -236,7 +244,7 @@ $env:DATA_MODE="original"; .venv\Scripts\python.exe eval\eval_detector.py   # �
 | 대화 | 이름 기억 | 직전 알람을 이어받는 질문 |
 | 화면 | 채팅창 하나 | 관제 대시보드 (장비 비교 · 추이 그래프 · 알람 표 · AI 분석 패널 · KPI 탐색 · 운영 지표) |
 | 운영 지표 | 없음 | `/metrics` + 화면 패널 |
-| 테스트 | 없음 | pytest 31개 + 실제 AI 시나리오 반복 점검 |
+| 테스트 | 없음 | pytest 33개 + 실제 AI 시나리오 반복 점검 |
 
 ## 9. 개발 과정에서의 문제점 및 해결 방법
 

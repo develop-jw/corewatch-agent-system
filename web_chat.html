@@ -157,6 +157,8 @@
   .approval ul { margin: 6px 0 8px; padding-left: 18px; }
   .approval .btns { display: flex; gap: 8px; }
   .approval .ok { background: var(--green); color: #0c1222; } .approval .hold { background: #5b4320; }
+  .trace { margin: 0 0 10px; padding: 8px 12px; border: 1px solid #2c4a3d; background: rgba(52,211,153,.06); border-radius: 8px; font-size: 12.5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .trace a { color: #7ee2b8; font-weight: 600; text-decoration: none; }
   .chat { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
   .msg { padding: 7px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
   .msg.q { align-self: flex-end; background: #2b3460; } .msg.a { background: #1a223b; border: 1px solid var(--line); }
@@ -199,6 +201,7 @@
       <div class="right">
         <span class="chip">{{ meta.data_mode === 'original' ? '실제 데이터 (로컬 전용)' : '합성 데이터' }}</span>
         <span class="chip">{{ backendLabel }}</span>
+        <span class="chip" v-if="tracing" style="border-color:#3b5d4c;color:#9be3c0">LangSmith 추적 · {{ traceProject }}</span>
         <span class="live"><i class="dot" :class="{ off: !online }"></i>{{ online ? '분석 서버 연결' : '분석 서버 끊김' }}</span>
       </div>
     </div>
@@ -346,6 +349,13 @@
             </div>
           </div>
 
+          <div class="trace" v-if="cur.traceId">
+            <span>🔎 LangSmith 실행 기록</span>
+            <a v-if="cur.trace && cur.trace.url" :href="cur.trace.url" target="_blank" rel="noopener">열기 ↗</a>
+            <span v-else class="muted">{{ cur.trace && cur.trace.error && !cur.trace.pending ? '조회 실패' : '기록 업로드 중…' }}</span>
+            <span class="muted num" v-if="cur.trace && cur.trace.latency_sec">· {{ cur.trace.latency_sec }}초 · 토큰 {{ cur.trace.total_tokens }}</span>
+            <span class="muted" v-if="cur.trace && cur.trace.feedback && Object.keys(cur.trace.feedback).length">· 피드백 {{ Object.entries(cur.trace.feedback).map(([k, v]) => k + '=' + v).join(', ') }}</span>
+          </div>
           <div class="chat"><div v-for="(m, i) in chatLog" :key="i" class="msg" :class="m.role">{{ m.text }}</div></div>
         </div>
 
@@ -400,6 +410,16 @@
         <tr><td>검사 반려 사유</td><td>{{ Object.entries(metrics.validation.problems).map(([k, v]) => k + ' (' + v + ')').join(' / ') || '없음' }}</td></tr>
         <tr><td>가동 시간</td><td>{{ metrics.uptime_sec }}초</td></tr>
       </table></div>
+      <div class="card tbl" style="max-height:none" v-if="traceStatus">
+        <div class="ph"><h3>LangSmith 실행 기록</h3>
+          <span class="muted">{{ traceStatus.enabled ? '추적 켜짐 · 프로젝트 ' + traceStatus.project : '추적 꺼짐 (.env의 LANGCHAIN_TRACING_V2=true, LANGCHAIN_API_KEY 필요 · 합성 데이터 모드에서만)' }}</span>
+          <a v-if="traceStatus.project_url" :href="traceStatus.project_url" target="_blank" rel="noopener" class="btn ghost" style="margin-left:auto;text-decoration:none">프로젝트 열기 ↗</a></div>
+        <div v-if="traceStatus.error" class="note" style="padding:0 14px 10px">조회 오류: {{ traceStatus.error }}</div>
+        <table class="num" v-if="traceStatus.recent"><thead><tr><th>시작</th><th>이름</th><th>상태</th><th class="rt">지연(초)</th><th class="rt">토큰</th><th>자동 피드백</th></tr></thead>
+          <tbody><tr v-for="r in traceStatus.recent" :key="r.id"><td>{{ r.start }}</td><td>{{ r.name }}</td>
+            <td :class="r.status === 'success' ? 'green' : 'amber'">{{ r.status }}</td><td class="rt">{{ r.latency_sec ?? '-' }}</td><td class="rt">{{ r.tokens ?? '-' }}</td>
+            <td>{{ Object.entries(r.feedback || {}).map(([k, v]) => k + '=' + v).join(' · ') || '-' }}</td></tr></tbody></table>
+      </div>
     </div>
   </div>
 </div>
@@ -457,9 +477,10 @@ createApp({
     const alarms = ref([]), kpiList = ref([]), snap = ref([]), series = ref({ points: [], threshold: 0 }), pair = ref({ points: [] });
     const sel = reactive({ device: '', kpi: '', ts: '' });
     const fDev = ref(''), fKpi = ref(''), fDir = ref(''), input = ref(''), busy = ref(false), chatLog = ref([]);
+    const tracing = ref(false), traceProject = ref(''), traceStatus = ref(null);
     const metrics = ref(null), ex = reactive({ device: 'MME-A01', kpi: 'pag_sms_succ_rate' }), exSeries = ref({ points: [], threshold: 0 });
     const thread = 't-web-' + Math.random().toString(36).slice(2, 8);
-    const blank = () => ({ started: false, alarm: null, tasks: {}, validation: '', vnote: '', facts: [], refs: [], hypothesis: '', live: '', pending: false, actions: [], runId: '', done: false, alarmPoint: null });
+    const blank = () => ({ started: false, alarm: null, tasks: {}, validation: '', vnote: '', facts: [], refs: [], hypothesis: '', live: '', pending: false, actions: [], runId: '', done: false, alarmPoint: null, traceId: '', trace: null });
     const cur = reactive(blank());
 
     const arr = v => Array.isArray(v) ? v : [];
@@ -507,10 +528,15 @@ createApp({
     function pickDevice(devName) { sel.device = devName; loadView(); }
     const isSel = a => a.device === sel.device && a.kpi === sel.kpi && a.ts === sel.ts;
     async function loadExplore() { exSeries.value = await j(`/series?device=${ex.device}&kpi=${ex.kpi}`); }
-    async function loadMetrics() { metrics.value = await j('/metrics'); }
+    async function loadMetrics() { metrics.value = await j('/metrics'); traceStatus.value = await j('/trace/status').catch(() => null); }
+    async function loadTrace(id) {   // LangSmith는 기록을 모아서 올리므로 잠시 뒤 몇 번 다시 묻는다
+      for (let i = 0; i < 6 && cur.traceId === id; i++) {
+        await new Promise(r => setTimeout(r, 2500));
+        try { const t = await j(`/trace/link?trace_id=${id}`); if (cur.traceId !== id) return; cur.trace = t; if (t.url && t.latency_sec != null) return; } catch { }
+      } }
 
     async function init() {
-      try { const h = await j('/health'); online.value = true;
+      try { const h = await j('/health'); online.value = true; tracing.value = !!h.tracing; traceProject.value = h.trace_project || '';
         backendLabel.value = h.llm_backend === 'fake' ? 'fake (테스트용 AI)' : `${h.llm_backend === 'openai' ? 'OpenAI' : 'Ollama'} · ${h.quality_llm.replace(/^\w+:/, '')}`; } catch { online.value = false; }
       meta.value = await j('/meta'); kpiList.value = await j('/kpis');
       alarms.value = await j(`/alarms?start=${encodeURIComponent(meta.value.alarm_from)}&limit=100`);
@@ -529,13 +555,14 @@ createApp({
       stream(`/chat/resume/stream?run_id=${encodeURIComponent(cur.runId)}&approved=${ok}`); }
 
     function stream(url, followUp = false) {
-      busy.value = true; let gotReport = false, liveAttempt = 0;
+      busy.value = true; let gotReport = false, liveAttempt = 0, streamTrace = '';
       const es = new EventSource(url);
       es.onmessage = async (event) => {
-        if (event.data === '[DONE]') { es.close(); busy.value = false; return; }
+        if (event.data === '[DONE]') { es.close(); busy.value = false; if (cur.traceId) loadTrace(cur.traceId); return; }
         let e; try { e = JSON.parse(event.data); } catch { return; }
-        if (e.type === 'PlanCreated') { if (followUp) { Object.assign(cur, blank(), { started: true }); chatLog.value = []; } cur.alarm = e.alarm;
+        if (e.type === 'PlanCreated') { if (followUp) { Object.assign(cur, blank(), { started: true, traceId: streamTrace }); chatLog.value = []; } cur.alarm = e.alarm;
           if (e.alarm) { Object.assign(sel, { device: e.alarm.device, kpi: e.alarm.kpi, ts: e.alarm.ts }); loadView(); } }
+        if (e.type === 'Trace') { streamTrace = e.trace_id; if (!cur.traceId) cur.traceId = e.trace_id; }
         if (e.type === 'TaskCompleted') cur.tasks[e.target] = true;
         if (e.type === 'AnswerToken' && e.attempt) { if (e.attempt !== liveAttempt) { cur.live = ''; liveAttempt = e.attempt; } cur.live += e.delta; }
         if (e.type === 'Validation') { if (e.verdict === '불합격') { cur.vnote = '내용 검사 1차 반려 → 재작성: ' + e.problems.join(' '); cur.validation = '내용 검사 반려 · 재작성 중'; }
@@ -551,7 +578,7 @@ createApp({
       es.onerror = () => { es.close(); busy.value = false; };
     }
 
-    return { errorMsg, view, meta, online, backendLabel, alarms, kpiList, snap, series, sel, fDev, fKpi, fDir, input, busy, chatLog, metrics, ex, exSeries, cur,
+    return { tracing, traceProject, traceStatus, errorMsg, view, meta, online, backendLabel, alarms, kpiList, snap, series, sel, fDev, fKpi, fDir, input, busy, chatLog, metrics, ex, exSeries, cur,
       label, d, fmt, isRate, dev, devText, change, spark, shownAlarms, selPoint, pairPoint, valueChart, scoreChart, exploreValue, exploreScore,
       reportPoint, otherDeviceQuestion, hyp, pickAlarm, pickDevice, isSel, loadExplore, loadMetrics, analyze, ask, decide };
   },

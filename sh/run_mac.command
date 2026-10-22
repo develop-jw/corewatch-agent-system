@@ -14,10 +14,10 @@ pip install -q -r requirements.txt
 # ---- 이미 켜진 서버가 포트를 잡고 있으면 끈다 ----
 for p in 8100 8600; do lsof -ti :$p | xargs kill -9 2>/dev/null; done
 
-export DATA_MODE=synthetic LANGCHAIN_TRACING_V2=false PYTHONUTF8=1
-if grep -q '^OPENAI_API_KEY=sk-' .env; then export LLM_BACKEND=openai; else export LLM_BACKEND=fake; fi
+export DATA_MODE=synthetic PYTHONUTF8=1      # LangSmith 추적 여부는 .env의 LANGCHAIN_TRACING_V2를 따른다
+if grep -Eq '^OPENAI_API_KEY=sk-[A-Za-z0-9_-]{20,}' .env; then export LLM_BACKEND=openai; else export LLM_BACKEND=fake; fi
 mkdir -p logs
-echo "== 분석 서버 시작 (LLM_BACKEND=$LLM_BACKEND) — 이상 탐지 모델 계산에 20초 정도 걸립니다 =="
+echo "== 분석 서버 시작 (AI: $LLM_BACKEND, LangSmith: $(grep -E '^LANGCHAIN_TRACING_V2=' .env | cut -d= -f2)) — 이상 탐지 모델 계산에 20초 정도 걸립니다 =="
 python server.py > logs/server.log 2>&1 &
 SERVER_PID=$!
 for i in $(seq 1 60); do curl -s localhost:8100/health >/dev/null && break; sleep 1; done

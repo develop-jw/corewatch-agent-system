@@ -8,6 +8,7 @@
 - Wave 14 : SUPERVISOR_VERSION(v1/v2) 환경변수로 legacy/신형 파이프라인 즉시 전환
 - LangSmith: 요청당 chat_request 루트 run 아래로 노드·LLM·MCP 호출이 계층 기록됨
 """
+import asyncio
 import json
 import os
 import time
@@ -31,6 +32,7 @@ from agent.deps import SupervisorDeps
 from agent.graph import build_graph
 from agent.llm_factory import build_llms
 from agent.metrics import Metrics
+from agent import observability
 from agent.mcp_client import MCPClient
 from agent.session_store import SqliteSessionStore
 from agent.supervisor_v1 import run_v1
@@ -78,6 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.graph = (build_graph(deps, checkpointer=InMemorySaver() if app.state.hitl else None)
                        if deps.version == "v2" else None)
     app.state.metrics = Metrics()   # 운영 지표 (요청 수·응답 시간·검사 통과율·승인 현황)
+    app.state.trace_of = {}   # run_id → 승인 대기 전 첫 실행의 LangSmith trace_id (승인 결과 피드백용)
     app.state.pending = {}   # run_id → {"thread_id", "message"} : 승인을 기다리는 요청
     app.state.instance_id = id(deps)
     yield
@@ -100,6 +103,7 @@ async def health() -> dict:
             "supervisor_version": app.state.deps.version,
             "llm_backend": app.state.llm_backend,
             "data_mode": app.state.data_mode,
+            "tracing": observability.tracing_enabled(), "trace_project": observability.project_name(),
             "fast_llm": app.state.deps.fast_llm.name,
             "quality_llm": app.state.deps.quality_llm.name}
 
@@ -180,6 +184,18 @@ async def metrics() -> dict:
     from mme import detect as mme_detect
     return {**app.state.metrics.summary(), "llm_backend": app.state.llm_backend,
             "detector_model": mme_detect.MODEL_VERSION}
+
+
+@app.get("/trace/status")
+async def trace_status() -> dict:
+    """LangSmith 추적 상태와 최근 실행 목록 (에이전트 운영 화면용)."""
+    return await asyncio.to_thread(observability.status)
+
+
+@app.get("/trace/link")
+async def trace_link(trace_id: str) -> dict:
+    """분석 1건의 LangSmith 화면 주소 · 지연 · 토큰 · 피드백."""
+    return await asyncio.to_thread(observability.run_link, trace_id)
 
 
 @app.get("/version")
@@ -321,6 +337,62 @@ def _report_event(v: dict, pending: bool = False) -> dict:
 
 async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: str,
                         thread_id: str, pending_elapsed: float = 0.0) -> AsyncIterator[str]:
+    """LangSmith 실행 기록(trace) 하나로 묶어 그래프를 실행하고 SSE 문자열을 내보낸다.
+
+    그래프 실행은 별도 작업(task)에서 @traceable 함수로 돌리고, 결과 이벤트는 큐로 받아 내보낸다.
+    → 노드 · 서브에이전트 · MCP 도구 · LLM 호출이 모두 'corewatch_analysis' 한 건 아래에 계층으로 기록된다.
+    분석이 끝나면 내용 검사 결과 · 운영자 승인 결과를 그 기록에 피드백으로 단다(백그라운드)."""
+    resume = isinstance(inp, Command)
+    q: asyncio.Queue = asyncio.Queue()
+    out: dict = {}
+    meta = {"thread_id": thread_id, "run_id": run_id, "llm_backend": app.state.llm_backend,
+            "data_mode": app.state.data_mode, "resume": resume}
+
+    @traceable(name="corewatch_resume" if resume else "corewatch_analysis", run_type="chain", metadata=meta,
+               tags=["corewatch", app.state.llm_backend])
+    async def _run(question: str) -> dict:
+        rt = get_current_run_tree()
+        trace_id = str(rt.trace_id) if rt else None
+        out["trace_id"] = trace_id
+        if trace_id and observability.tracing_enabled():
+            await q.put(f"data: {json.dumps({'type': 'Trace', 'trace_id': trace_id, 'project': observability.project_name()}, ensure_ascii=False)}\n\n")
+        async for chunk in _graph_events(inp, run_id, seen, message, thread_id, pending_elapsed, out):
+            await q.put(chunk)
+        v = out.get("values", {})
+        return {"route": v.get("route"), "alarm": v.get("alarm"), "interrupted": out.get("interrupted", False),
+                "validation_ok": v.get("validation_detail", {}).get("ok"), "approval": v.get("approval"),
+                "cost_usd": v.get("cost_usd")}
+
+    async def _producer() -> None:
+        try:
+            await _run(message)
+        except Exception as e:
+            await q.put(f"data: {json.dumps({'type': 'FinalAnswer', 'reply': f'분석 중 오류가 났습니다: {type(e).__name__}'}, ensure_ascii=False)}\n\n")
+        finally:
+            await q.put(None)
+
+    task = asyncio.create_task(_producer())
+    while (chunk := await q.get()) is not None:
+        yield chunk
+    await task
+
+    # ---- LangSmith 피드백 (응답을 늦추지 않도록 백그라운드 스레드) ----
+    values = out.get("values", {})
+    if observability.tracing_enabled() and values:
+        loop = asyncio.get_running_loop()
+        if resume:
+            first_trace = app.state.trace_of.get(run_id)
+            loop.run_in_executor(None, observability.send_feedback, first_trace, {}, values.get("approval"))
+        else:
+            if out.get("interrupted"):
+                app.state.trace_of[run_id] = out.get("trace_id")
+            if values.get("route") == "incident":
+                loop.run_in_executor(None, observability.send_feedback, out.get("trace_id"), values,
+                                     None if out.get("interrupted") else values.get("approval"))
+
+
+async def _graph_events(inp: dict | Command, run_id: str, seen: int, message: str, thread_id: str,
+                        pending_elapsed: float, out: dict) -> AsyncIterator[str]:
     """그래프를 실행하며 SSE 문자열을 내보낸다.
     "updates"는 노드가 끝날 때마다의 상태 변화, "custom"은 실행 중 바로 흘려보내는 토큰(AnswerToken)이다.
     위험 조치가 있으면 그래프가 멈추고(__interrupt__) ApprovalRequired 이벤트를 보낸 뒤 끝난다."""
@@ -340,6 +412,7 @@ async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: st
                 ev = {"type": "ApprovalRequired", "run_id": run_id, "actions": req["actions"], "draft": req["draft"]}
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
                 snap = await app.state.graph.aget_state(_config(run_id))
+                out.update(values=snap.values, interrupted=True)
                 yield f"data: {json.dumps(_report_event(snap.values, pending=True), ensure_ascii=False)}\n\n"
                 return
             delta = delta or {}
@@ -353,6 +426,7 @@ async def _stream_graph(inp: dict | Command, run_id: str, seen: int, message: st
                 last_prompt = delta["last_prompt"]
     snap = await app.state.graph.aget_state(_config(run_id)) if app.state.hitl else None
     values = snap.values if snap else {}
+    out["values"] = values
     last_prompt = last_prompt or values.get("last_prompt")
     app.state.metrics.record(values or {"route": "unknown"}, time.perf_counter() - t0 + pending_elapsed)
     if values.get("route") == "incident" and values.get("facts"):

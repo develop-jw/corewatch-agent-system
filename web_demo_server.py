@@ -73,6 +73,16 @@ async def proxy_snapshot(request: Request) -> JSONResponse:
     return await _proxy_get("/snapshot", request)
 
 
+@app.get("/trace/status")
+async def proxy_trace_status(request: Request) -> JSONResponse:
+    return await _proxy_get("/trace/status", request)
+
+
+@app.get("/trace/link")
+async def proxy_trace_link(request: Request) -> JSONResponse:
+    return await _proxy_get("/trace/link", request)
+
+
 @app.get("/alarms")
 async def proxy_alarms(request: Request) -> JSONResponse:
     async with httpx.AsyncClient(timeout=30.0) as client:
