@@ -78,6 +78,25 @@
 | 9 | 운영 관리 | LangSmith 실행 기록 · 자동 피드백, 운영 지표 `/metrics` | 추가 수행 |
 | 10 | 검증 | 기능 시험 33개, 실제 AI(gpt-4o) 반복 실행, 탐지 성능 평가 | 완료 |
 
+### 1-3. 수행 과정 (시간 순)
+
+| 일자 | 단계 | 한 일 | 산출물 |
+|---|---|---|---|
+| 10. 17. (토) | 사전 분석 · 설계 | 운영 데이터 구조와 이상 패턴 분석, 탐지 방식 후보 3종(고정 기준 · 시간대별 기준 · Isolation Forest) 선정, 설계 결정 19건 기록 | 설계 결정 기록(ADR) |
+| 10. 20. (화) | 착수 | 사업 제안서 · 사업수행계획서 · 요구사항 정의서 작성, 과제 2 선정, Base 에이전트 구조 분석, 시연용 합성 데이터 생성기 작성 | 착수 문서 3종 v0.9 |
+| 10. 21. (수) | 핵심 기능 구축 | 장애 징후 탐지 모델, MCP 도구 서버, 조사 담당 3개(멀티 에이전트), 매뉴얼 검색(RAG), 자동 검사, 운영자 승인, 이어지는 질문, 운영 지표 | 분석 에이전트 · 단위 테스트 |
+| 10. 22. (목) 새벽 | 실제 AI 검증 · 관제 화면 | gpt-4o로 시나리오 반복 실행 → 매뉴얼 위반 '장비 재시작' 권고 발견 → 검사 규칙 추가, 관제 대시보드 구축 | 검증 결과 · 관제 화면 |
+| 10. 22. (목) 오전 | 운영 준비 · 결과 보고 | Mac · Windows 원클릭 실행 스크립트, LangSmith 실행 기록 · 자동 피드백 연동, README · 발표 자료 작성 | 결과 보고서 · 발표 자료 |
+
+**착수 단계 산출물** — 실제 사업처럼 제안서 → 수행계획서 → 요구사항 정의서 순으로 범위를 정하고, 구축과 검증은 이 문서를 기준으로 진행했습니다.
+
+<p align="center">
+  <img src="docs/images/doc_cover_1_proposal.png" width="30%" alt="사업 제안서">&nbsp;
+  <img src="docs/images/doc_cover_2_plan.png" width="30%" alt="사업수행계획서">&nbsp;
+  <img src="docs/images/doc_cover_3_requirements.png" width="30%" alt="요구사항 정의서">
+</p>
+<p align="center"><sub>사업 제안서 (CW-PROP-002) · 사업수행계획서 (CW-PLAN-002) · 요구사항 정의서 (CW-REQ-002) — 모두 v0.9, 교육용 가상 사업</sub></p>
+
 ---
 
 ## 2. 사용한 기술 요소 및 구현 결과
@@ -127,7 +146,7 @@ flowchart LR
     M --> ML[이상 탐지 모델<br/>Isolation Forest]
     M --> RB[(점검 매뉴얼<br/>RAG)]
     G --> L[AI 모델<br/>fake / Ollama / OpenAI]
-    G -. 실행 기록 .-> LS[LangSmith]
+    G -->|실행 기록| LS[LangSmith]
 ```
 
 ### 2-2. 기존 기능(Base) 대비 개선 사항 및 추가 구현
@@ -203,6 +222,8 @@ flowchart LR
 | **CoreWatch (Isolation Forest)** | **20건** | 66건 |
 
 **단위 테스트: 33개 통과** (가짜 AI, 외부 호출 없음)
+
+<p align="center"><img src="docs/images/09_pytest_33_passed.png" width="80%" alt="pytest 33 passed"></p>
 
 | 파일 | 개수 | 확인 내용 |
 |---|---|---|
